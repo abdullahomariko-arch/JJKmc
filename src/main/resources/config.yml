@@ -1,0 +1,61 @@
+# JJKmc Configuration
+
+prefix: "§5§l[JJK]§r "
+
+# Cursed Energy settings
+cursed-energy:
+  max: 100
+  regen-rate: 2
+  regen-interval: 20
+
+# Projection Sorcery settings
+projection:
+  dash-distance: 10.0
+  dash-cooldown: 5000
+  freeze-duration: 60
+  breaker-cooldown: 8000
+
+# Domain Expansion settings
+domain:
+  radius: 15
+  duration: 300
+  ce-drain: 5
+
+# Séance settings
+seance:
+  incantation-time: 100
+  waiting-room:
+    world: world
+    x: 0.5
+    y: 64.0
+    z: 0.5
+
+# Permadeath settings
+permadeath:
+  enabled: true
+
+# Cursed Body settings
+cursed-body:
+  drop-chance: 0.05
+
+# Straw Doll settings
+straw-doll:
+  resonance-cooldown: 10000
+  hairpin-cooldown: 15000
+
+# Idle Death Gamble settings
+idle-death-gamble:
+  domain-duration: 120
+  gamble-cooldown: 30000
+
+# Copy technique settings
+copy:
+  max-copies: 3
+
+# Creation technique settings
+creation:
+  max-constructs: 5
+
+# Wheel adaptation settings
+wheel:
+  max-tier: 5
