@@ -1,105 +1,146 @@
 package me.axebanz.jJK;
 
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
+import org.bukkit.event.player.*;
+import org.bukkit.inventory.ItemStack;
 
-/**
- * Handles séance and permadeath events.
- *
- * Bug Fix #6: On permadeath, kick the player after saving data.
- *             On join, if permaDead, teleport to waiting room and apply effects.
- *             onRespawn handler removed (players get kicked now).
- *
- * Bug Fix #7: onInteractEntity handler removed — cursed body detection now uses
- *             dropped item entities on the ground near armor stands.
- */
-public class SeanceListener implements Listener {
+import java.util.UUID;
+
+public final class SeanceListener implements Listener {
+
     private final JJKCursedToolsPlugin plugin;
     private final SeanceManager seanceManager;
-    private final PlayerDataStore dataStore;
 
-    public SeanceListener(JJKCursedToolsPlugin plugin, SeanceManager seanceManager,
-                          PlayerDataStore dataStore) {
+    public SeanceListener(JJKCursedToolsPlugin plugin, SeanceManager seanceManager) {
         this.plugin = plugin;
         this.seanceManager = seanceManager;
-        this.dataStore = dataStore;
     }
 
-    /**
-     * Bug Fix #6: When permadeath triggers, kick the player after saving data.
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerDeath(PlayerDeathEvent event) {
-        Player player = event.getEntity();
-        if (!plugin.cfg().permadeathEnabled()) return;
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onInteract(PlayerInteractEvent e) {
+        Player p = e.getPlayer();
 
-        PlayerProfile profile = dataStore.getOrCreate(player.getUniqueId());
-        if (profile.isPermaDead()) return; // already permadead
+        if (e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_AIR
+                && e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK) return;
 
-        profile.setPermaDead(true);
-        dataStore.save(player.getUniqueId());
+        ItemStack inHand = p.getInventory().getItemInMainHand();
+        if (!seanceManager.isBindingVow(inHand)) return;
 
-        // Bug Fix #6: kick the player with permadeath message
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (player.isOnline()) {
-                player.kickPlayer("§5§lYou have fallen in battle.\n§7Your soul awaits reincarnation...");
+        String assignedId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
+        if ("strawdoll".equalsIgnoreCase(assignedId)) return;
+
+        e.setCancelled(true);
+
+        if (seanceManager.hasActiveSeance(p.getUniqueId())) {
+            boolean activated = seanceManager.applyBindingVow(p);
+            if (activated) {
+                inHand.subtract(1);
             }
-        }, 1L);
+            return;
+        }
+
+        PlayerProfile prof = plugin.data().get(p.getUniqueId());
+        if (prof.seanceBindingVowActive) {
+            p.sendMessage(plugin.cfg().prefix() + "§7Binding Vow is already active.");
+            return;
+        }
+
+        prof.seanceBindingVowActive = true;
+        plugin.data().save(p.getUniqueId());
+        inHand.subtract(1);
+
+        p.sendMessage(plugin.cfg().prefix() + "§5§lBinding Vow activated! §cYou can no longer deal damage.");
     }
 
-    /**
-     * Bug Fix #6: On join, if player is permaDead, teleport to waiting room and apply effects.
-     * Do NOT kick them again — they need to be here for séance.
-     */
-    @EventHandler
-    public void onJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        PlayerProfile profile = dataStore.getOrCreate(player.getUniqueId());
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerDeath(PlayerDeathEvent e) {
+        Player dead = e.getPlayer();
+        UUID deadUuid = dead.getUniqueId();
+        PlayerProfile prof = plugin.data().get(deadUuid);
 
-        if (profile.isPermaDead()) {
-            // Teleport to waiting room
-            Location waitingRoom = getWaitingRoom();
-            if (waitingRoom != null) {
-                player.teleport(waitingRoom);
-            }
+        boolean killedByPlayer = dead.getKiller() != null;
 
-            // Apply visual effects to indicate permadeath state
-            player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, Integer.MAX_VALUE, 0, false, false));
-            player.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, Integer.MAX_VALUE, 2, false, false));
+        if (prof.isReincarnated) {
+            seanceManager.onReincarnatedPlayerDeath(deadUuid);
+            prof.isReincarnated = false;
+        }
 
-            player.sendMessage(plugin.cfg().prefix() + "§5§lYou have fallen in battle.");
-            player.sendMessage(plugin.cfg().prefix() + "§7Find a practitioner to perform your séance.");
+        boolean permadeathTriggered = killedByPlayer && plugin.cfg().permadeathEnabled() && !prof.permaDead;
+        if (permadeathTriggered) {
+            prof.permaDeadTechniqueId = prof.techniqueId;
+            prof.techniqueId = null;
+            prof.permaDead = true;
+            plugin.data().save(deadUuid);
+            e.setDeathMessage(null);
+
+            ItemStack body = plugin.cursedBody().create(deadUuid);
+            dead.getWorld().dropItemNaturally(dead.getLocation(), body);
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (dead.isOnline()) {
+                    seanceManager.banPermadeadPlayer(dead);
+                }
+            }, 5L);
+        }
+
+        if (seanceManager.hasActiveSeance(deadUuid)) {
+            seanceManager.onSeanceUserDeath(deadUuid);
         }
     }
 
-    // Bug Fix #6: onRespawn handler removed — permadead players are kicked, not respawned.
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onJoin(PlayerJoinEvent e) {
+        Player p = e.getPlayer();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!p.isOnline()) return;
+            plugin.data().load(p.getUniqueId());
+            PlayerProfile prof = plugin.data().get(p.getUniqueId());
 
-    // Bug Fix #7: onInteractEntity handler removed — cursed body detection is now done
-    // by finding dropped Item entities near armor stands (see SeanceManager).
+            if (prof.isReincarnated && prof.seanceSpawnWorld != null) {
+                World world = Bukkit.getWorld(prof.seanceSpawnWorld);
+                if (world != null) {
+                    Location spawnLoc = new Location(world, prof.seanceSpawnX, prof.seanceSpawnY, prof.seanceSpawnZ);
+                    p.teleport(spawnLoc);
+                }
+                p.setGameMode(GameMode.SURVIVAL);
+                p.setHealth(p.getMaxHealth());
+                p.setFoodLevel(20);
+                p.sendMessage(plugin.cfg().prefix() + "§5§lYou have been reincarnated! Fight wisely — your soul is still bound.");
 
-    public void startSeance(Player incantator, ArmorStand stand) {
-        seanceManager.startIncantation(incantator, stand);
+                prof.seanceSpawnWorld = null;
+                prof.seanceSpawnX = 0;
+                prof.seanceSpawnY = 0;
+                prof.seanceSpawnZ = 0;
+                plugin.data().save(p.getUniqueId());
+            }
+
+            if (!prof.permaDead && p.getGameMode() == GameMode.ADVENTURE) {
+                p.setGameMode(GameMode.SURVIVAL);
+            }
+        }, 3L);
     }
 
-    private Location getWaitingRoom() {
-        FileConfiguration cfg = plugin.getConfig();
-        String worldName = cfg.getString("seance.waiting-room.world", "world");
-        World world = Bukkit.getWorld(worldName);
-        if (world == null) return null;
-        double x = cfg.getDouble("seance.waiting-room.x", 0.5);
-        double y = cfg.getDouble("seance.waiting-room.y", 64.0);
-        double z = cfg.getDouble("seance.waiting-room.z", 0.5);
-        return new Location(world, x, y, z);
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onSeanceUserRespawn(PlayerRespawnEvent e) {
+        UUID uuid = e.getPlayer().getUniqueId();
+        if (!seanceManager.hasActiveSeance(uuid)) return;
+        Bukkit.getScheduler().runTaskLater(plugin, () -> seanceManager.onSeanceUserRespawn(uuid), 5L);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onDamageByBindingVow(EntityDamageByEntityEvent e) {
+        if (!(e.getDamager() instanceof Player attacker)) return;
+        PlayerProfile prof = plugin.data().get(attacker.getUniqueId());
+        if (!prof.seanceBindingVowActive) return;
+        e.setCancelled(true);
     }
 }

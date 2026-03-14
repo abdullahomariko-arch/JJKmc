@@ -1,0 +1,1160 @@
+package me.axebanz.jJK;
+
+import org.bukkit.*;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
+import org.bukkit.entity.*;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.util.Vector;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class TenShadowsManager {
+
+    private final JJKCursedToolsPlugin plugin;
+    private final ModelEngineBridge model;
+
+    private final NamespacedKey KEY_SHIKIGAMI;
+    private final NamespacedKey KEY_SHIKIGAMI_TYPE;
+    private final NamespacedKey KEY_SHIKIGAMI_OWNER;
+    private final NamespacedKey KEY_RITUAL_MOB;
+
+    private final Map<UUID, TenShadowsProfile> profiles = new ConcurrentHashMap<>();
+    private final Map<UUID, ShikigamiInstance> activeShikigami = new ConcurrentHashMap<>();
+    private final Map<UUID, BossBar> ritualBossBars = new ConcurrentHashMap<>();
+    private final Map<UUID, BossBar> mahoragaBossBars = new ConcurrentHashMap<>();
+
+    // Mahoraga attack tracking
+    private final Map<UUID, Integer> mahoragaAttackCycle = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> mahoragaLastAttackMs = new ConcurrentHashMap<>();
+
+    // Rabbit Escape speed boost tracking
+    private final Map<UUID, Boolean> rabbitWallActive = new ConcurrentHashMap<>();
+
+    private static final long SUMMON_COOLDOWN_SECONDS = 30;
+    private static final long RITUAL_COOLDOWN_SECONDS = 120;
+    private static final int SUMMON_CE_COST = 3;
+    private static final int RITUAL_CE_COST = 5;
+    private static final double SHIKIGAMI_FOLLOW_DISTANCE = 3.5;
+    private static final double SHIKIGAMI_ATTACK_RANGE = 3.0;
+    private static final double SHIKIGAMI_HARD_LIMIT = 25.0;
+
+    // Mahoraga constants
+    private static final double MAHORAGA_ATTACK_RANGE = 4.0;
+    private static final long MAHORAGA_ATTACK_COOLDOWN_MS = 1500;
+    private static final double MAHORAGA_NORMAL_DAMAGE = 12.0;
+    private static final double MAHORAGA_UPPERCUT_DAMAGE = 8.0;
+    private static final double MAHORAGA_DOWNSLAM_DAMAGE = 18.0;
+    private static final double MAHORAGA_UPPERCUT_LAUNCH_Y = 1.2;
+    private static final double MAHORAGA_DOWNSLAM_KNOCKBACK = 1.8;
+    private static final long MAHORAGA_DOWNSLAM_DELAY_TICKS = 15;
+    private static final double MAHORAGA_FOLLOW_SPEED = 0.40;
+    private static final double MAHORAGA_CHASE_SPEED = 0.60;
+    private static final double MAHORAGA_Y_LERP = 0.25;
+    private static final double MAHORAGA_HARD_LIMIT = 25.0;
+    private static final double MAHORAGA_FOLLOW_DISTANCE = 3.5;
+
+    // Rabbit Escape
+    private static final int RABBIT_SWARM_COUNT = 24;
+    private static final double RABBIT_WALL_RADIUS = 3.0;
+
+    // Divine Dogs
+    private static final double DOG_SIDE_OFFSET = 1.5;
+
+    private int brainTaskId = -1;
+
+    public TenShadowsManager(JJKCursedToolsPlugin plugin) {
+        this.plugin = plugin;
+        this.model = new ModelEngineBridge(plugin);
+        this.KEY_SHIKIGAMI = new NamespacedKey(plugin, "shikigami");
+        this.KEY_SHIKIGAMI_TYPE = new NamespacedKey(plugin, "shikigami_type");
+        this.KEY_SHIKIGAMI_OWNER = new NamespacedKey(plugin, "shikigami_owner");
+        this.KEY_RITUAL_MOB = new NamespacedKey(plugin, "ritual_mob");
+    }
+
+    public void start() {
+        if (brainTaskId != -1) Bukkit.getScheduler().cancelTask(brainTaskId);
+        brainTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, this::tick, 1L, 1L);
+    }
+
+    // ========== Profile Management ==========
+
+    public TenShadowsProfile getProfile(UUID uuid) {
+        return profiles.computeIfAbsent(uuid, TenShadowsProfile::new);
+    }
+
+    public boolean hasTechnique(Player p) {
+        String techId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
+        return "ten_shadows".equalsIgnoreCase(techId);
+    }
+
+    // ========== Summoning ==========
+
+    public void trySummon(Player p, ShikigamiType type) {
+        UUID u = p.getUniqueId();
+        String prefix = plugin.cfg().prefix();
+        TenShadowsProfile prof = getProfile(u);
+
+        if (!hasTechnique(p)) {
+            p.sendMessage(prefix + "§cYou don't have Ten Shadows.");
+            return;
+        }
+
+        if (!plugin.techniqueManager().canUseTechniqueActions(p, true)) return;
+
+        if (prof.activeSummonId != null) {
+            p.sendMessage(prefix + "§cYou already have §f" + ShikigamiType.from(prof.activeSummonId).displayName() + "§c summoned. Dismiss first.");
+            return;
+        }
+
+        if (prof.ritualActive) {
+            p.sendMessage(prefix + "§cYou have a ritual in progress! Finish or cancel it first.");
+            return;
+        }
+
+        if (!prof.isUnlocked(type)) {
+            p.sendMessage(prefix + "§cYou haven't unlocked §f" + type.displayName() + "§c yet. Use /tenshadows ritual " + type.id());
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (prof.summonCooldownUntilMs > now) {
+            long rem = (prof.summonCooldownUntilMs - now) / 1000L;
+            p.sendMessage(prefix + "§cSummon on cooldown: §f" + TimeFmt.mmss(rem));
+            return;
+        }
+
+        if (!plugin.ce().tryConsume(u, SUMMON_CE_COST)) {
+            p.sendMessage(prefix + "§cNot enough Cursed Energy. (Need " + SUMMON_CE_COST + ")");
+            return;
+        }
+
+        Location spawnLoc = p.getLocation().clone().add(p.getLocation().getDirection().normalize().multiply(2));
+        spawnLoc.setY(p.getLocation().getY());
+        spawnLoc = snapToGround(spawnLoc);
+
+        ShikigamiInstance instance = new ShikigamiInstance(type, u);
+
+        if (type == ShikigamiType.RABBIT_ESCAPE) {
+            // Spawn swarm
+            spawnRabbitSwarm(p, instance, spawnLoc);
+        } else if (type.isPair()) {
+            // Spawn pair (Divine Dogs)
+            spawnDivineDogsPair(p, instance, spawnLoc);
+        } else if (type.usesArmorStandModel()) {
+            // Spawn as ArmorStand + ModelEngine (Mahoraga)
+            spawnArmorStandShikigami(p, type, instance, spawnLoc, false);
+        } else {
+            // Normal mob spawn
+            LivingEntity entity = spawnMobShikigami(p, type, spawnLoc, false);
+            if (entity == null) {
+                p.sendMessage(prefix + "§cFailed to summon shikigami.");
+                plugin.ce().add(u, SUMMON_CE_COST);
+                return;
+            }
+            instance.setEntityUuid(entity.getUniqueId());
+        }
+
+        activeShikigami.put(u, instance);
+        prof.activeSummonId = type.id();
+        prof.setState(type, ShikigamiState.ACTIVE);
+        prof.summonCooldownUntilMs = now + SUMMON_COOLDOWN_SECONDS * 1000L;
+
+        if (type == ShikigamiType.MAHORAGA) {
+            createMahoragaBossBar(p, instance);
+        }
+
+        p.sendMessage(prefix + "§a" + type.displayName() + " §ahas been summoned!");
+        p.getWorld().playSound(p.getLocation(), Sound.ENTITY_WITHER_SPAWN, 0.6f, 1.4f);
+        spawnSummonParticles(spawnLoc);
+    }
+
+    public void dismiss(Player p) {
+        UUID u = p.getUniqueId();
+        String prefix = plugin.cfg().prefix();
+        TenShadowsProfile prof = getProfile(u);
+
+        if (prof.activeSummonId == null) {
+            p.sendMessage(prefix + "§cNo shikigami is currently summoned.");
+            return;
+        }
+
+        ShikigamiType type = ShikigamiType.from(prof.activeSummonId);
+        removeActiveShikigami(u, false);
+
+        rabbitWallActive.remove(u);
+
+        p.sendMessage(prefix + "§7" + (type != null ? type.displayName() : "Shikigami") + " §7dismissed.");
+        p.getWorld().playSound(p.getLocation(), Sound.BLOCK_SOUL_SAND_BREAK, 0.8f, 1.2f);
+    }
+
+    private void removeActiveShikigami(UUID ownerUuid, boolean destroyed) {
+        ShikigamiInstance instance = activeShikigami.remove(ownerUuid);
+        TenShadowsProfile prof = getProfile(ownerUuid);
+
+        if (instance != null) {
+            // Remove main entity
+            removeEntity(instance.entityUuid());
+            // Remove second entity (Divine Dogs pair)
+            removeEntity(instance.secondEntityUuid());
+            // Remove swarm entities (Rabbit Escape)
+            for (UUID sid : instance.swarmEntityUuids()) {
+                removeEntity(sid);
+            }
+        }
+
+        BossBar bar = mahoragaBossBars.remove(ownerUuid);
+        if (bar != null) bar.removeAll();
+
+        if (prof.activeSummonId != null) {
+            ShikigamiType type = ShikigamiType.from(prof.activeSummonId);
+            if (type != null) {
+                if (destroyed) {
+                    handleShikigamiDeath(ownerUuid, type);
+                } else {
+                    prof.setState(type, ShikigamiState.UNLOCKED);
+                }
+            }
+        }
+
+        prof.activeSummonId = null;
+        prof.activeSummonEntityUuid = null;
+        mahoragaAttackCycle.remove(ownerUuid);
+        mahoragaLastAttackMs.remove(ownerUuid);
+        rabbitWallActive.remove(ownerUuid);
+    }
+
+    private void removeEntity(UUID uuid) {
+        if (uuid == null) return;
+        Entity e = Bukkit.getEntity(uuid);
+        if (e != null && e.isValid()) {
+            model.removeModel(e);
+            e.remove();
+        }
+    }
+
+    // ========== Spawn Methods ==========
+
+    /** Spawn Mahoraga (or any ArmorStand-model shikigami) like Rika */
+    private void spawnArmorStandShikigami(Player owner, ShikigamiType type, ShikigamiInstance instance, Location loc, boolean hostile) {
+        loc.setYaw(dirToYaw(owner.getLocation().getDirection()));
+        loc.setPitch(0);
+
+        ArmorStand as = owner.getWorld().spawn(loc, ArmorStand.class, e -> {
+            e.setCustomName((hostile ? "§c" : "") + type.displayName());
+            e.setCustomNameVisible(true);
+            e.setInvisible(true);
+            e.setMarker(false);
+            e.setSmall(false);
+            e.setGravity(false);
+            e.setSilent(true);
+            e.setInvulnerable(false); // Can take damage during rituals
+            e.setCanPickupItems(false);
+            e.setCollidable(false);
+            e.setRemoveWhenFarAway(false);
+        });
+
+        as.setRotation(loc.getYaw(), 0);
+        as.getPersistentDataContainer().set(KEY_SHIKIGAMI, PersistentDataType.INTEGER, 1);
+        as.getPersistentDataContainer().set(KEY_SHIKIGAMI_TYPE, PersistentDataType.STRING, type.id());
+        as.getPersistentDataContainer().set(KEY_SHIKIGAMI_OWNER, PersistentDataType.STRING, owner.getUniqueId().toString());
+        if (hostile) {
+            as.getPersistentDataContainer().set(KEY_RITUAL_MOB, PersistentDataType.INTEGER, 1);
+        }
+
+        instance.setEntityUuid(as.getUniqueId());
+
+        // Apply ModelEngine model
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!as.isValid()) return;
+            model.applyModel(as, type.modelId());
+            model.playAnimation(as, "summon");
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (as.isValid()) model.playAnimation(as, "idle");
+            }, 20L);
+        }, 1L);
+
+        // Track health via a hidden entity or metadata for ArmorStand-based shikigami
+        // We use a custom health tracker in the profile
+        TenShadowsProfile prof = getProfile(owner.getUniqueId());
+        prof.armorStandHealth = type.maxHealth();
+        prof.armorStandMaxHealth = type.maxHealth();
+
+        if (type == ShikigamiType.MAHORAGA) {
+            mahoragaAttackCycle.put(as.getUniqueId(), 0);
+            mahoragaLastAttackMs.put(as.getUniqueId(), 0L);
+        }
+    }
+
+    /** Spawn Divine Dogs as a pair */
+    private void spawnDivineDogsPair(Player owner, ShikigamiInstance instance, Location baseLoc) {
+        Vector right = getPerpendicularRight(owner);
+
+        Location leftLoc = baseLoc.clone().add(right.clone().multiply(-DOG_SIDE_OFFSET));
+        Location rightLoc = baseLoc.clone().add(right.clone().multiply(DOG_SIDE_OFFSET));
+        leftLoc = snapToGround(leftLoc);
+        rightLoc = snapToGround(rightLoc);
+
+        LivingEntity dog1 = spawnMobShikigami(owner, ShikigamiType.DIVINE_DOGS, leftLoc, false);
+        LivingEntity dog2 = spawnMobShikigami(owner, ShikigamiType.DIVINE_DOGS, rightLoc, false);
+
+        if (dog1 != null) {
+            dog1.setCustomName("§fDivine Dog §8(White)");
+            instance.setEntityUuid(dog1.getUniqueId());
+        }
+        if (dog2 != null) {
+            dog2.setCustomName("§8Divine Dog §f(Black)");
+            instance.setSecondEntityUuid(dog2.getUniqueId());
+        }
+    }
+
+    /** Spawn Rabbit Escape as a swarm */
+    private void spawnRabbitSwarm(Player owner, ShikigamiInstance instance, Location baseLoc) {
+        Random rng = new Random();
+        for (int i = 0; i < RABBIT_SWARM_COUNT; i++) {
+            double angle = (Math.PI * 2.0) * (i / (double) RABBIT_SWARM_COUNT);
+            double radius = 1.0 + rng.nextDouble() * 2.5;
+            Location rabbitLoc = baseLoc.clone().add(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+            rabbitLoc = snapToGround(rabbitLoc);
+
+            Rabbit rabbit = (Rabbit) owner.getWorld().spawnEntity(rabbitLoc, EntityType.RABBIT);
+            rabbit.setCustomName("§fRabbit Escape");
+            rabbit.setCustomNameVisible(false);
+            rabbit.setInvulnerable(true); // Rabbits are indestructible (swarm diversion)
+            rabbit.setSilent(true);
+
+            rabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI, PersistentDataType.INTEGER, 1);
+            rabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI_TYPE, PersistentDataType.STRING, ShikigamiType.RABBIT_ESCAPE.id());
+            rabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI_OWNER, PersistentDataType.STRING, owner.getUniqueId().toString());
+
+            instance.swarmEntityUuids().add(rabbit.getUniqueId());
+
+            if (i == 0) instance.setEntityUuid(rabbit.getUniqueId());
+        }
+
+        // Give owner speed boost while rabbits are active
+        owner.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 2, false, false, true));
+        rabbitWallActive.put(owner.getUniqueId(), true);
+
+        owner.sendMessage(plugin.cfg().prefix() + "§fRabbit Escape! §7The swarm surrounds and protects you. Sprint to escape!");
+    }
+
+    /** Spawn a normal mob-based shikigami */
+    private LivingEntity spawnMobShikigami(Player owner, ShikigamiType type, Location loc, boolean hostile) {
+        EntityType entityType = getBaseEntityType(type);
+        LivingEntity entity = (LivingEntity) loc.getWorld().spawnEntity(loc, entityType);
+
+        if (type.maxHealth() > 0) {
+            entity.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(type.maxHealth());
+            entity.setHealth(type.maxHealth());
+        }
+
+        entity.setCustomName((hostile ? "§c" : "") + type.displayName());
+        entity.setCustomNameVisible(true);
+
+        entity.getPersistentDataContainer().set(KEY_SHIKIGAMI, PersistentDataType.INTEGER, 1);
+        entity.getPersistentDataContainer().set(KEY_SHIKIGAMI_TYPE, PersistentDataType.STRING, type.id());
+        entity.getPersistentDataContainer().set(KEY_SHIKIGAMI_OWNER, PersistentDataType.STRING, owner.getUniqueId().toString());
+        if (hostile) {
+            entity.getPersistentDataContainer().set(KEY_RITUAL_MOB, PersistentDataType.INTEGER, 1);
+        }
+
+        if (hostile && entity instanceof Mob mob) {
+            mob.setTarget(owner);
+        }
+        if (!hostile && entity instanceof Mob mob) {
+            mob.setAware(true);
+        }
+
+        // Apply model if the type has one and isn't ArmorStand-based
+        String modelId = type.modelId();
+        if (modelId != null && !type.usesArmorStandModel()) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (entity.isValid()) model.applyModel(entity, modelId);
+            }, 1L);
+        }
+
+        return entity;
+    }
+
+    private EntityType getBaseEntityType(ShikigamiType type) {
+        return switch (type) {
+            case DIVINE_DOGS, DIVINE_DOG_TOTALITY -> EntityType.WOLF;
+            case TOAD -> EntityType.FROG;
+            case RABBIT_ESCAPE -> EntityType.RABBIT;
+            case NUE -> EntityType.PHANTOM;
+            case GREAT_SERPENT -> EntityType.RAVAGER;
+            case MAX_ELEPHANT -> EntityType.RAVAGER;
+            case NUE_TOTALITY -> EntityType.RAVAGER;
+            case ROUND_DEER -> EntityType.RAVAGER;
+            case PIERCING_OX -> EntityType.RAVAGER;
+            case TIGER_FUNERAL -> EntityType.RAVAGER;
+            case MAHORAGA -> EntityType.IRON_GOLEM; // fallback, shouldn't be used
+        };
+    }
+
+    // ========== Shikigami Death & Fusion ==========
+
+    private void handleShikigamiDeath(UUID ownerUuid, ShikigamiType type) {
+        TenShadowsProfile prof = getProfile(ownerUuid);
+        Player owner = Bukkit.getPlayer(ownerUuid);
+        String prefix = plugin.cfg().prefix();
+
+        prof.setState(type, ShikigamiState.DESTROYED);
+
+        switch (type) {
+            case DIVINE_DOGS -> {
+                prof.setState(ShikigamiType.DIVINE_DOG_TOTALITY, ShikigamiState.FUSED_UNLOCKED);
+                if (owner != null) {
+                    owner.sendMessage(prefix + "§8§l✦ §fDivine Dogs §7has been destroyed...");
+                    owner.sendMessage(prefix + "§8§l✦ §8Divine Dog: Totality §fhas been unlocked through fusion!");
+                    owner.playSound(owner.getLocation(), Sound.ENTITY_WITHER_DEATH, 0.5f, 1.6f);
+                }
+            }
+            case NUE -> {
+                prof.nueDestroyed = true;
+                if (prof.greatSerpentDestroyed) {
+                    prof.setState(ShikigamiType.NUE_TOTALITY, ShikigamiState.FUSED_UNLOCKED);
+                    if (owner != null) {
+                        owner.sendMessage(prefix + "§6§l✦ Nue: Totality §fhas been unlocked through fusion!");
+                        owner.playSound(owner.getLocation(), Sound.ENTITY_WITHER_DEATH, 0.5f, 1.6f);
+                    }
+                } else if (owner != null) {
+                    owner.sendMessage(prefix + "§e" + type.displayName() + " §7has been permanently destroyed.");
+                }
+            }
+            case GREAT_SERPENT -> {
+                prof.greatSerpentDestroyed = true;
+                if (prof.nueDestroyed) {
+                    prof.setState(ShikigamiType.NUE_TOTALITY, ShikigamiState.FUSED_UNLOCKED);
+                    if (owner != null) {
+                        owner.sendMessage(prefix + "§6§l✦ Nue: Totality §fhas been unlocked through fusion!");
+                        owner.playSound(owner.getLocation(), Sound.ENTITY_WITHER_DEATH, 0.5f, 1.6f);
+                    }
+                } else if (owner != null) {
+                    owner.sendMessage(prefix + "§2" + type.displayName() + " §7has been permanently destroyed.");
+                }
+            }
+            default -> {
+                if (owner != null) {
+                    owner.sendMessage(prefix + type.displayName() + " §7has been permanently destroyed.");
+                }
+            }
+        }
+    }
+
+    // ========== Ritual System ==========
+
+    public void startRitual(Player p, ShikigamiType type) {
+        UUID u = p.getUniqueId();
+        String prefix = plugin.cfg().prefix();
+        TenShadowsProfile prof = getProfile(u);
+
+        if (!hasTechnique(p)) {
+            p.sendMessage(prefix + "§cYou don't have Ten Shadows.");
+            return;
+        }
+
+        if (!plugin.techniqueManager().canUseTechniqueActions(p, true)) return;
+
+        if (!type.requiresRitual()) {
+            p.sendMessage(prefix + "§c" + type.displayName() + " §cdoesn't require a ritual.");
+            return;
+        }
+
+        if (prof.isUnlocked(type) || prof.isDestroyed(type)) {
+            p.sendMessage(prefix + "§cYou've already dealt with §f" + type.displayName() + "§c.");
+            return;
+        }
+
+        if (type == ShikigamiType.DIVINE_DOG_TOTALITY || type == ShikigamiType.NUE_TOTALITY) {
+            p.sendMessage(prefix + "§c" + type.displayName() + " §ccan only be obtained through fusion.");
+            return;
+        }
+
+        if (prof.ritualActive) {
+            p.sendMessage(prefix + "§cA ritual is already in progress!");
+            return;
+        }
+
+        if (prof.activeSummonId != null) {
+            p.sendMessage(prefix + "§cDismiss your current shikigami before starting a ritual.");
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (prof.ritualCooldownUntilMs > now) {
+            long rem = (prof.ritualCooldownUntilMs - now) / 1000L;
+            p.sendMessage(prefix + "§cRitual on cooldown: §f" + TimeFmt.mmss(rem));
+            return;
+        }
+
+        if (!plugin.ce().tryConsume(u, RITUAL_CE_COST)) {
+            p.sendMessage(prefix + "§cNot enough Cursed Energy. (Need " + RITUAL_CE_COST + ")");
+            return;
+        }
+
+        Location spawnLoc = p.getLocation().clone().add(p.getLocation().getDirection().normalize().multiply(4));
+        spawnLoc.setY(p.getLocation().getY());
+        spawnLoc = snapToGround(spawnLoc);
+
+        if (type.usesArmorStandModel()) {
+            // Mahoraga ritual — ArmorStand based, hostile
+            ShikigamiInstance instance = new ShikigamiInstance(type, u);
+            spawnArmorStandShikigami(p, type, instance, spawnLoc, true);
+            prof.ritualEntityUuid = instance.entityUuid().toString();
+
+            // Make the ArmorStand invulnerable=false already set above
+            // Track health in profile
+            prof.armorStandHealth = type.maxHealth();
+            prof.armorStandMaxHealth = type.maxHealth();
+        } else {
+            // Normal mob ritual
+            LivingEntity entity = spawnMobShikigami(p, type, spawnLoc, true);
+            if (entity == null) {
+                p.sendMessage(prefix + "§cFailed to start ritual.");
+                plugin.ce().add(u, RITUAL_CE_COST);
+                return;
+            }
+            prof.ritualEntityUuid = entity.getUniqueId().toString();
+        }
+
+        prof.ritualActive = true;
+        prof.ritualTargetId = type.id();
+        prof.ritualCooldownUntilMs = now + RITUAL_COOLDOWN_SECONDS * 1000L;
+
+        BossBar bossBar = Bukkit.createBossBar(
+                type == ShikigamiType.MAHORAGA ? "§5§lMahoraga" : "§c" + type.displayName() + " §8— Ritual",
+                type == ShikigamiType.MAHORAGA ? BarColor.PURPLE : BarColor.RED,
+                BarStyle.SOLID
+        );
+        bossBar.setProgress(1.0);
+        bossBar.addPlayer(p);
+        ritualBossBars.put(u, bossBar);
+
+        p.sendTitle(
+                type == ShikigamiType.MAHORAGA ? "§5§lMAHORAGA" : "§c§lRITUAL",
+                "§7Defeat §f" + type.displayName() + " §7to tame it!",
+                10, 60, 20
+        );
+
+        p.getWorld().playSound(p.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.6f);
+        spawnRitualParticles(spawnLoc);
+
+        p.sendMessage(prefix + "§c§lThe ritual begins! §7Defeat §f" + type.displayName() + " §7to unlock it!");
+    }
+
+    /** Called when a ritual mob dies — either via EntityDeathEvent or ArmorStand damage tracking */
+    public void onRitualMobDeath(UUID ownerUuid, ShikigamiType type) {
+        TenShadowsProfile prof = getProfile(ownerUuid);
+        Player owner = Bukkit.getPlayer(ownerUuid);
+        String prefix = plugin.cfg().prefix();
+
+        // Clean up ritual entity
+        if (prof.ritualEntityUuid != null) {
+            removeEntity(parseUuid(prof.ritualEntityUuid));
+        }
+
+        prof.ritualActive = false;
+        prof.ritualTargetId = null;
+        prof.ritualEntityUuid = null;
+
+        BossBar bar = ritualBossBars.remove(ownerUuid);
+        if (bar != null) bar.removeAll();
+
+        prof.setState(type, ShikigamiState.UNLOCKED);
+
+        if (owner != null) {
+            owner.sendTitle("§a§l✦ TAMED ✦", type.displayName() + " §7has been unlocked!", 10, 60, 20);
+            owner.sendMessage(prefix + "§a§l✦ " + type.displayName() + " §a§lhas been tamed! You can now summon it.");
+            owner.playSound(owner.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.2f);
+            owner.setHealth(Math.min(owner.getMaxHealth(), owner.getHealth() + 10));
+        }
+    }
+
+    /** Deal damage to an ArmorStand-based shikigami (Mahoraga) */
+    public void damageArmorStandShikigami(UUID ownerUuid, double damage) {
+        TenShadowsProfile prof = getProfile(ownerUuid);
+        prof.armorStandHealth -= damage;
+
+        if (prof.armorStandHealth <= 0) {
+            prof.armorStandHealth = 0;
+
+            if (prof.ritualActive) {
+                ShikigamiType type = ShikigamiType.from(prof.ritualTargetId);
+                if (type != null) {
+                    onRitualMobDeath(ownerUuid, type);
+                }
+            } else {
+                removeActiveShikigami(ownerUuid, true);
+            }
+        }
+    }
+
+    public void cancelRitual(Player p) {
+        UUID u = p.getUniqueId();
+        TenShadowsProfile prof = getProfile(u);
+        String prefix = plugin.cfg().prefix();
+
+        if (!prof.ritualActive) {
+            p.sendMessage(prefix + "§cNo active ritual to cancel.");
+            return;
+        }
+
+        removeEntity(parseUuid(prof.ritualEntityUuid));
+
+        BossBar bar = ritualBossBars.remove(u);
+        if (bar != null) bar.removeAll();
+
+        prof.ritualActive = false;
+        prof.ritualTargetId = null;
+        prof.ritualEntityUuid = null;
+
+        p.sendMessage(prefix + "§7Ritual cancelled.");
+    }
+
+    // ========== Mahoraga Boss Bar ==========
+
+    private void createMahoragaBossBar(Player owner, ShikigamiInstance instance) {
+        BossBar bar = Bukkit.createBossBar("§5§lMahoraga", BarColor.PURPLE, BarStyle.SEGMENTED_10);
+        bar.setProgress(1.0);
+        bar.addPlayer(owner);
+
+        for (Player nearby : owner.getWorld().getPlayers()) {
+            if (nearby.getLocation().distanceSquared(owner.getLocation()) <= 50 * 50) {
+                bar.addPlayer(nearby);
+            }
+        }
+
+        mahoragaBossBars.put(owner.getUniqueId(), bar);
+    }
+
+    // ========== Mahoraga AI (ArmorStand-based, like Rika) ==========
+
+    private void tickMahoragaArmorStand(UUID ownerUuid, ShikigamiInstance instance, boolean isRitual) {
+        if (instance.entityUuid() == null) return;
+        Entity entity = Bukkit.getEntity(instance.entityUuid());
+        if (entity == null || !entity.isValid()) return;
+        if (!(entity instanceof ArmorStand as)) return;
+
+        Player owner = Bukkit.getPlayer(ownerUuid);
+        if (owner == null || !owner.isOnline()) return;
+
+        Location rl = as.getLocation();
+
+        if (isRitual) {
+            // HOSTILE: chase and attack owner
+            double dist = rl.distance(owner.getLocation());
+
+            if (dist > MAHORAGA_HARD_LIMIT) {
+                Location beside = snapToGround(owner.getLocation().clone().add(2, 0, 2));
+                beside.setYaw(dirToYaw(owner.getLocation().toVector().subtract(beside.toVector())));
+                teleportWithYaw(as, beside);
+                return;
+            }
+
+            if (dist > MAHORAGA_ATTACK_RANGE) {
+                // Chase
+                Vector toOwner = owner.getLocation().toVector().subtract(rl.toVector());
+                toOwner.setY(0);
+                if (toOwner.lengthSquared() > 0.01) {
+                    double moveAmount = Math.min(MAHORAGA_CHASE_SPEED, dist - MAHORAGA_ATTACK_RANGE + 0.5);
+                    Location desired = rl.clone().add(toOwner.normalize().multiply(moveAmount));
+                    Location ground = snapToGround(desired);
+                    double smoothY = lerpY(rl.getY(), ground.getY());
+                    desired.setY(smoothY);
+                    desired.setYaw(dirToYaw(toOwner.normalize()));
+                    desired.setPitch(0);
+                    teleportWithYaw(as, desired);
+                }
+            }
+
+            // Attack owner if in range
+            if (dist <= MAHORAGA_ATTACK_RANGE) {
+                tickMahoragaAttackArmorStand(as, owner, ownerUuid, instance, true);
+            }
+        } else {
+            // FRIENDLY: follow owner, attack nearest hostile
+            LivingEntity target = findNearestHostile(owner, rl, 18.0);
+
+            if (target != null) {
+                double dist = rl.distance(target.getLocation());
+                if (dist > MAHORAGA_ATTACK_RANGE) {
+                    Vector toTarget = target.getLocation().toVector().subtract(rl.toVector());
+                    toTarget.setY(0);
+                    double moveAmount = Math.min(MAHORAGA_CHASE_SPEED, dist - MAHORAGA_ATTACK_RANGE + 0.5);
+                    if (moveAmount > 0.01) {
+                        Location desired = rl.clone().add(toTarget.normalize().multiply(moveAmount));
+                        Location ground = snapToGround(desired);
+                        double smoothY = lerpY(rl.getY(), ground.getY());
+                        desired.setY(smoothY);
+                        desired.setYaw(dirToYaw(toTarget.normalize()));
+                        desired.setPitch(0);
+                        teleportWithYaw(as, desired);
+                    }
+                }
+                if (dist <= MAHORAGA_ATTACK_RANGE) {
+                    tickMahoragaAttackArmorStand(as, target, ownerUuid, instance, false);
+                }
+            } else {
+                // Follow owner
+                double dist = rl.distance(owner.getLocation());
+                if (dist > MAHORAGA_HARD_LIMIT) {
+                    Location beside = snapToGround(owner.getLocation().clone().add(1.5, 0, 1.5));
+                    beside.setYaw(dirToYaw(owner.getLocation().getDirection()));
+                    teleportWithYaw(as, beside);
+                } else if (dist > MAHORAGA_FOLLOW_DISTANCE) {
+                    Vector toOwner = owner.getLocation().toVector().subtract(rl.toVector());
+                    toOwner.setY(0);
+                    Vector step = toOwner.normalize().multiply(Math.min(MAHORAGA_FOLLOW_SPEED, dist - MAHORAGA_FOLLOW_DISTANCE + 0.1));
+                    Location desired = rl.clone().add(step);
+                    Location ground = snapToGround(desired);
+                    double smoothY = lerpY(rl.getY(), ground.getY());
+                    desired.setY(smoothY);
+                    desired.setYaw(dirToYaw(toOwner.normalize()));
+                    desired.setPitch(0);
+                    teleportWithYaw(as, desired);
+                } else {
+                    Location adjusted = rl.clone();
+                    adjusted.setYaw(dirToYaw(owner.getLocation().getDirection()));
+                    adjusted.setPitch(0);
+                    Location ground = snapToGround(adjusted);
+                    double smoothY = lerpY(rl.getY(), ground.getY());
+                    adjusted.setY(smoothY);
+                    teleportWithYaw(as, adjusted);
+                }
+            }
+
+            // Update Mahoraga boss bar
+            TenShadowsProfile prof = getProfile(ownerUuid);
+            BossBar bar = mahoragaBossBars.get(ownerUuid);
+            if (bar != null && prof.armorStandMaxHealth > 0) {
+                double pct = prof.armorStandHealth / prof.armorStandMaxHealth;
+                bar.setProgress(Math.max(0, Math.min(1, pct)));
+
+                // Show adaptation tier on boss bar
+                bar.setTitle("§5§lMahoraga §8| " + instance.currentTier().displayName());
+            }
+        }
+    }
+
+    private void tickMahoragaAttackArmorStand(ArmorStand mahoraga, LivingEntity target, UUID ownerUuid, ShikigamiInstance instance, boolean isRitual) {
+        long now = System.currentTimeMillis();
+        Long lastAttack = mahoragaLastAttackMs.get(mahoraga.getUniqueId());
+        if (lastAttack == null) lastAttack = 0L;
+        if (now - lastAttack < MAHORAGA_ATTACK_COOLDOWN_MS) return;
+
+        mahoragaLastAttackMs.put(mahoraga.getUniqueId(), now);
+
+        int cycle = mahoragaAttackCycle.getOrDefault(mahoraga.getUniqueId(), 0);
+        double adaptMult = 1.0 + instance.adaptationStacks() * 0.08;
+
+        Player damageSource = Bukkit.getPlayer(ownerUuid);
+
+        switch (cycle) {
+            case 0 -> {
+                model.playAnimation(mahoraga, "attack");
+                target.damage(MAHORAGA_NORMAL_DAMAGE * adaptMult, damageSource);
+                mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.ENTITY_IRON_GOLEM_ATTACK, 1.0f, 0.8f);
+                mahoragaAttackCycle.put(mahoraga.getUniqueId(), 1);
+            }
+            case 1 -> {
+                model.playAnimation(mahoraga, "attack2");
+                target.damage(MAHORAGA_NORMAL_DAMAGE * adaptMult, damageSource);
+                mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.ENTITY_IRON_GOLEM_ATTACK, 1.0f, 1.0f);
+                mahoragaAttackCycle.put(mahoraga.getUniqueId(), 2);
+            }
+            case 2 -> {
+                model.playAnimation(mahoraga, "uppercut");
+                target.damage(MAHORAGA_UPPERCUT_DAMAGE * adaptMult, damageSource);
+                target.setVelocity(target.getVelocity().add(new Vector(0, MAHORAGA_UPPERCUT_LAUNCH_Y, 0)));
+                mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.ENTITY_IRON_GOLEM_ATTACK, 1.2f, 1.4f);
+
+                final LivingEntity finalTarget = target;
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                    if (!mahoraga.isValid() || !finalTarget.isValid()) return;
+
+                    // Teleport above target
+                    Location above = finalTarget.getLocation().clone().add(0, 2, 0);
+                    above.setYaw(mahoraga.getLocation().getYaw());
+                    teleportWithYaw(mahoraga, above);
+
+                    model.playAnimation(mahoraga, "downslam");
+                    finalTarget.damage(MAHORAGA_DOWNSLAM_DAMAGE * adaptMult, damageSource);
+                    finalTarget.setFallDistance(0);
+
+                    Vector kb = finalTarget.getLocation().toVector()
+                            .subtract(mahoraga.getLocation().toVector())
+                            .normalize().multiply(MAHORAGA_DOWNSLAM_KNOCKBACK);
+                    kb.setY(0.3);
+                    finalTarget.setVelocity(kb);
+
+                    Location impactLoc = finalTarget.getLocation();
+                    mahoraga.getWorld().spawnParticle(Particle.EXPLOSION, impactLoc, 3, 0.5, 0.2, 0.5, 0);
+                    mahoraga.getWorld().spawnParticle(Particle.CLOUD, impactLoc, 30, 1.0, 0.2, 1.0, 0.02);
+                    mahoraga.getWorld().playSound(impactLoc, Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.7f);
+                }, MAHORAGA_DOWNSLAM_DELAY_TICKS);
+
+                mahoragaAttackCycle.put(mahoraga.getUniqueId(), 3);
+            }
+            case 3 -> {
+                // Adaptation phase
+                if (instance.lastPhenomenonType() != null && instance.consecutiveSameHits() >= 3) {
+                    instance.addAdaptationStack();
+
+                    model.playAnimation(mahoraga, "adapt");
+                    mahoraga.getWorld().spawnParticle(Particle.END_ROD,
+                            mahoraga.getLocation().add(0, 3.5, 0), 40, 0.3, 0.3, 0.3, 0.02);
+                    mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 1.0f, 0.6f);
+
+                    for (Player nearby : mahoraga.getWorld().getPlayers()) {
+                        if (nearby.getLocation().distance(mahoraga.getLocation()) <= 30) {
+                            nearby.sendMessage(plugin.cfg().prefix() +
+                                    instance.currentTier().displayName() + " §7— Mahoraga adapts! §8(" +
+                                    (int)(instance.adaptationReduction() * 100) + "% reduction)");
+                        }
+                    }
+                }
+                mahoragaAttackCycle.put(mahoraga.getUniqueId(), 0);
+            }
+        }
+    }
+
+    // ========== Tick ==========
+
+    private void tick() {
+        long now = System.currentTimeMillis();
+
+        // Tick active (friendly) shikigami
+        for (Map.Entry<UUID, ShikigamiInstance> entry : activeShikigami.entrySet()) {
+            UUID ownerUuid = entry.getKey();
+            ShikigamiInstance instance = entry.getValue();
+
+            Player owner = Bukkit.getPlayer(ownerUuid);
+            if (owner == null || !owner.isOnline()) continue;
+
+            // ArmorStand-based shikigami (Mahoraga)
+            if (instance.type().usesArmorStandModel()) {
+                tickMahoragaArmorStand(ownerUuid, instance, false);
+                continue;
+            }
+
+            // Rabbit Escape swarm
+            if (instance.type() == ShikigamiType.RABBIT_ESCAPE) {
+                tickRabbitSwarm(owner, instance);
+                continue;
+            }
+
+            // Divine Dogs pair
+            if (instance.type().isPair()) {
+                tickDivineDogsPair(owner, instance);
+                continue;
+            }
+
+            // Normal mob shikigami
+            if (instance.entityUuid() == null) continue;
+            Entity entity = Bukkit.getEntity(instance.entityUuid());
+            if (entity == null || !entity.isValid()) {
+                removeActiveShikigami(ownerUuid, true);
+                continue;
+            }
+            if (!(entity instanceof LivingEntity le)) continue;
+            if (le.isDead() || le.getHealth() <= 0) {
+                removeActiveShikigami(ownerUuid, true);
+                continue;
+            }
+
+            if (le.getLocation().distance(owner.getLocation()) > SHIKIGAMI_HARD_LIMIT) {
+                Location beside = snapToGround(owner.getLocation().clone().add(1.5, 0, 1.5));
+                le.teleport(beside);
+                continue;
+            }
+
+            if (le.getLocation().distance(owner.getLocation()) > SHIKIGAMI_FOLLOW_DISTANCE) {
+                if (le instanceof Mob mob) {
+                    mob.getPathfinder().moveTo(owner.getLocation(), 1.2);
+                }
+            }
+        }
+
+        // Tick ritual entities
+        for (Map.Entry<UUID, TenShadowsProfile> entry : profiles.entrySet()) {
+            UUID ownerUuid = entry.getKey();
+            TenShadowsProfile prof = entry.getValue();
+
+            if (!prof.ritualActive) continue;
+            if (prof.ritualEntityUuid == null) continue;
+
+            Player owner = Bukkit.getPlayer(ownerUuid);
+            if (owner == null || !owner.isOnline()) {
+                cancelRitualInternal(ownerUuid);
+                continue;
+            }
+
+            ShikigamiType ritualType = ShikigamiType.from(prof.ritualTargetId);
+
+            // ArmorStand-based ritual (Mahoraga)
+            if (ritualType != null && ritualType.usesArmorStandModel()) {
+                ShikigamiInstance ritualInstance = new ShikigamiInstance(ritualType, ownerUuid);
+                ritualInstance.setEntityUuid(parseUuid(prof.ritualEntityUuid));
+                tickMahoragaArmorStand(ownerUuid, ritualInstance, true);
+
+                // Update boss bar
+                BossBar bar = ritualBossBars.get(ownerUuid);
+                if (bar != null && prof.armorStandMaxHealth > 0) {
+                    double pct = prof.armorStandHealth / prof.armorStandMaxHealth;
+                    bar.setProgress(Math.max(0, Math.min(1, pct)));
+                }
+                continue;
+            }
+
+            // Normal mob ritual
+            try {
+                UUID ritualEntityId = UUID.fromString(prof.ritualEntityUuid);
+                Entity entity = Bukkit.getEntity(ritualEntityId);
+
+                if (entity == null || !entity.isValid() || (entity instanceof LivingEntity le && le.isDead())) {
+                    if (ritualType != null) {
+                        onRitualMobDeath(ownerUuid, ritualType);
+                    }
+                    continue;
+                }
+
+                if (entity instanceof LivingEntity le) {
+                    BossBar bar = ritualBossBars.get(ownerUuid);
+                    if (bar != null) {
+                        double pct = le.getHealth() / le.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+                        bar.setProgress(Math.max(0, Math.min(1, pct)));
+                    }
+
+                    if (le instanceof Mob mob) {
+                        mob.setTarget(owner);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    // ========== Rabbit Escape Tick ==========
+
+    private void tickRabbitSwarm(Player owner, ShikigamiInstance instance) {
+        Location center = owner.getLocation();
+        int alive = 0;
+
+        for (int i = 0; i < instance.swarmEntityUuids().size(); i++) {
+            UUID rabbitId = instance.swarmEntityUuids().get(i);
+            Entity e = Bukkit.getEntity(rabbitId);
+            if (e == null || !e.isValid()) continue;
+            alive++;
+
+            // Form protective wall around owner
+            double angle = (Math.PI * 2.0) * (i / (double) instance.swarmEntityUuids().size());
+            double radius = RABBIT_WALL_RADIUS;
+            Location targetLoc = center.clone().add(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+            targetLoc = snapToGround(targetLoc);
+
+            double dist = e.getLocation().distance(targetLoc);
+            if (dist > 1.5) {
+                if (e instanceof Mob mob) {
+                    mob.getPathfinder().moveTo(targetLoc, 1.8);
+                }
+            }
+        }
+
+        // Maintain speed boost
+        if (alive > 0 && !owner.hasPotionEffect(PotionEffectType.SPEED)) {
+            owner.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 40, 2, false, false, true));
+        }
+
+        // If all rabbits somehow die (shouldn't happen since invulnerable), dismiss
+        if (alive == 0) {
+            removeActiveShikigami(owner.getUniqueId(), false);
+        }
+    }
+
+    // ========== Divine Dogs Pair Tick ==========
+
+    private void tickDivineDogsPair(Player owner, ShikigamiInstance instance) {
+        Entity dog1 = instance.entityUuid() != null ? Bukkit.getEntity(instance.entityUuid()) : null;
+        Entity dog2 = instance.secondEntityUuid() != null ? Bukkit.getEntity(instance.secondEntityUuid()) : null;
+
+        boolean dog1Alive = dog1 != null && dog1.isValid() && (!(dog1 instanceof LivingEntity le) || !le.isDead());
+        boolean dog2Alive = dog2 != null && dog2.isValid() && (!(dog2 instanceof LivingEntity le) || !le.isDead());
+
+        if (!dog1Alive && !dog2Alive) {
+            removeActiveShikigami(owner.getUniqueId(), true);
+            return;
+        }
+
+        // Both dogs: follow on each side, attack together
+        Vector right = getPerpendicularRight(owner);
+
+        if (dog1Alive && dog1 instanceof LivingEntity le1) {
+            Location leftSide = owner.getLocation().clone().add(right.clone().multiply(-DOG_SIDE_OFFSET));
+            if (le1.getLocation().distance(owner.getLocation()) > SHIKIGAMI_HARD_LIMIT) {
+                le1.teleport(snapToGround(leftSide));
+            } else if (le1.getLocation().distance(leftSide) > 2.0 && le1 instanceof Mob mob) {
+                LivingEntity target = findNearestHostile(owner, le1.getLocation(), 12.0);
+                if (target != null) {
+                    mob.setTarget(target);
+                } else {
+                    mob.getPathfinder().moveTo(leftSide, 1.2);
+                }
+            }
+        }
+
+        if (dog2Alive && dog2 instanceof LivingEntity le2) {
+            Location rightSide = owner.getLocation().clone().add(right.clone().multiply(DOG_SIDE_OFFSET));
+            if (le2.getLocation().distance(owner.getLocation()) > SHIKIGAMI_HARD_LIMIT) {
+                le2.teleport(snapToGround(rightSide));
+            } else if (le2.getLocation().distance(rightSide) > 2.0 && le2 instanceof Mob mob) {
+                LivingEntity target = findNearestHostile(owner, le2.getLocation(), 12.0);
+                if (target != null) {
+                    mob.setTarget(target);
+                } else {
+                    mob.getPathfinder().moveTo(rightSide, 1.2);
+                }
+            }
+        }
+    }
+
+    private void cancelRitualInternal(UUID ownerUuid) {
+        TenShadowsProfile prof = getProfile(ownerUuid);
+        removeEntity(parseUuid(prof.ritualEntityUuid));
+        BossBar bar = ritualBossBars.remove(ownerUuid);
+        if (bar != null) bar.removeAll();
+        prof.ritualActive = false;
+        prof.ritualTargetId = null;
+        prof.ritualEntityUuid = null;
+    }
+
+    // ========== Utility ==========
+
+    public boolean isShikigamiEntity(Entity e) {
+        if (e == null || !e.isValid()) return false;
+        Integer v = e.getPersistentDataContainer().get(KEY_SHIKIGAMI, PersistentDataType.INTEGER);
+        return v != null && v == 1;
+    }
+
+    public boolean isRitualMob(Entity e) {
+        if (!isShikigamiEntity(e)) return false;
+        Integer v = e.getPersistentDataContainer().get(KEY_RITUAL_MOB, PersistentDataType.INTEGER);
+        return v != null && v == 1;
+    }
+
+    public UUID getShikigamiOwner(Entity e) {
+        if (!isShikigamiEntity(e)) return null;
+        String s = e.getPersistentDataContainer().get(KEY_SHIKIGAMI_OWNER, PersistentDataType.STRING);
+        if (s == null) return null;
+        try { return UUID.fromString(s); } catch (Exception ex) { return null; }
+    }
+
+    public ShikigamiType getShikigamiType(Entity e) {
+        if (!isShikigamiEntity(e)) return null;
+        String s = e.getPersistentDataContainer().get(KEY_SHIKIGAMI_TYPE, PersistentDataType.STRING);
+        return ShikigamiType.from(s);
+    }
+
+    /** Check if an ArmorStand-based shikigami belongs to an owner */
+    public boolean isArmorStandShikigami(Entity e, UUID ownerUuid) {
+        if (!isShikigamiEntity(e)) return false;
+        ShikigamiType type = getShikigamiType(e);
+        if (type == null || !type.usesArmorStandModel()) return false;
+        UUID entityOwner = getShikigamiOwner(e);
+        return ownerUuid.equals(entityOwner);
+    }
+
+    public void cleanup(UUID ownerUuid) {
+        removeActiveShikigami(ownerUuid, false);
+        cancelRitualInternal(ownerUuid);
+        rabbitWallActive.remove(ownerUuid);
+
+        Player owner = Bukkit.getPlayer(ownerUuid);
+        if (owner != null) {
+            owner.removePotionEffect(PotionEffectType.SPEED);
+        }
+    }
+
+    private LivingEntity findNearestHostile(Player owner, Location from, double range) {
+        LivingEntity best = null;
+        double bestDist = range;
+
+        for (Entity e : from.getWorld().getNearbyEntities(from, range, range, range)) {
+            if (!(e instanceof LivingEntity le)) continue;
+            if (e.getUniqueId().equals(owner.getUniqueId())) continue;
+            if (e instanceof ArmorStand) continue;
+            if (isShikigamiEntity(e)) continue;
+            if (plugin.rika() != null && plugin.rika().isRikaEntity(e)) continue;
+
+            double dist = e.getLocation().distance(from);
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = le;
+            }
+        }
+        return best;
+    }
+
+    private void spawnSummonParticles(Location loc) {
+        World w = loc.getWorld();
+        if (w == null) return;
+        Particle.DustOptions dark = new Particle.DustOptions(Color.fromRGB(20, 0, 40), 2.0f);
+        w.spawnParticle(Particle.DUST, loc.clone().add(0, 1, 0), 60, 0.8, 1.0, 0.8, 0, dark);
+        w.spawnParticle(Particle.SMOKE, loc.clone().add(0, 0.5, 0), 30, 0.5, 0.3, 0.5, 0.02);
+    }
+
+    private void spawnRitualParticles(Location loc) {
+        World w = loc.getWorld();
+        if (w == null) return;
+        Particle.DustOptions red = new Particle.DustOptions(Color.fromRGB(180, 0, 0), 2.5f);
+        w.spawnParticle(Particle.DUST, loc.clone().add(0, 1.5, 0), 80, 1.2, 1.5, 1.2, 0, red);
+        w.spawnParticle(Particle.FLAME, loc.clone().add(0, 0.5, 0), 40, 0.8, 0.3, 0.8, 0.03);
+        w.spawnParticle(Particle.SOUL_FIRE_FLAME, loc.clone().add(0, 1, 0), 30, 0.6, 0.6, 0.6, 0.02);
+    }
+
+    private Location snapToGround(Location loc) {
+        World w = loc.getWorld();
+        if (w == null) return loc;
+        int x = loc.getBlockX(); int z = loc.getBlockZ(); int startY = loc.getBlockY();
+        for (int y = startY + 5; y >= Math.max(w.getMinHeight(), startY - 10); y--) {
+            if (!w.getBlockAt(x, y, z).getType().isAir() && w.getBlockAt(x, y + 1, z).getType().isAir()) {
+                return new Location(w, loc.getX(), y + 1.0, loc.getZ(), loc.getYaw(), loc.getPitch());
+            }
+        }
+        return loc;
+    }
+
+    private float dirToYaw(Vector dir) {
+        if (dir.lengthSquared() < 0.001) return 0;
+        return (float) Math.toDegrees(Math.atan2(-dir.getX(), dir.getZ())) - 180f;
+    }
+
+    private void teleportWithYaw(Entity entity, Location loc) {
+        entity.teleport(loc);
+        if (entity instanceof ArmorStand as) {
+            as.setRotation(loc.getYaw(), 0);
+        }
+        model.forceBodyYaw(entity, loc.getYaw());
+    }
+
+    private double lerpY(double currentY, double targetY) {
+        double diff = targetY - currentY;
+        if (Math.abs(diff) < 0.05) return targetY;
+        return currentY + diff * MAHORAGA_Y_LERP;
+    }
+
+    private Vector getPerpendicularRight(Player owner) {
+        Vector dir = owner.getLocation().getDirection().normalize();
+        return new Vector(-dir.getZ(), 0, dir.getX()).normalize();
+    }
+
+    private UUID parseUuid(String s) {
+        if (s == null) return null;
+        try { return UUID.fromString(s); } catch (Exception e) { return null; }
+    }
+}

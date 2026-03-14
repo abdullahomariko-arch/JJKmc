@@ -2,28 +2,22 @@ package me.axebanz.jJK;
 
 import org.bukkit.entity.Player;
 
-public class SeanceTechnique implements Technique {
-    private final JJKCursedToolsPlugin plugin;
-    private final SeanceManager manager;
+public final class SeanceTechnique implements Technique {
 
-    public SeanceTechnique(JJKCursedToolsPlugin plugin, SeanceManager manager) {
+    private final JJKCursedToolsPlugin plugin;
+
+    public SeanceTechnique(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        this.manager = manager;
     }
 
-    @Override public String getId() { return "seance"; }
-    @Override public String getDisplayName() { return "§5Séance"; }
+    @Override public String id() { return "seance"; }
+    @Override public String displayName() { return "Séance"; }
+    @Override public String hexColor() { return "#8B4A8B"; }
+    @Override public String glyphTag() { return "<glyph:technique_seance:colorable>"; }
+    @Override public String iconColor() { return "§5"; }
 
     @Override
-    public void castAbility(Player player, String ability) {
-        String techId = plugin.techniqueManager().getAssignedId(player.getUniqueId());
-        if (!"seance".equalsIgnoreCase(techId)) {
-            player.sendMessage(plugin.cfg().prefix() + "§cYou don't have the §5Séance§c technique.");
-            return;
-        }
-        player.sendMessage(plugin.cfg().prefix() + "§5Ability: " + ability);
+    public void castAbility(Player player, AbilitySlot slot) {
+        player.sendMessage(plugin.cfg().prefix() + "§5Use §d/seance activate§5 near an armor stand holding a cursed body to begin the séance.");
     }
-
-    @Override public void onEquip(Player player) { player.sendMessage(plugin.cfg().prefix() + "§5Séance §7equipped!"); }
-    @Override public void onUnequip(Player player) { player.sendMessage(plugin.cfg().prefix() + "§5Séance §7unequipped."); }
 }

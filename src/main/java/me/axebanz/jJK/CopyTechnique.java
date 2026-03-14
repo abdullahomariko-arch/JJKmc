@@ -2,28 +2,27 @@ package me.axebanz.jJK;
 
 import org.bukkit.entity.Player;
 
-public class CopyTechnique implements Technique {
-    private final JJKCursedToolsPlugin plugin;
-    private final CopyManager manager;
+public final class CopyTechnique implements Technique {
 
-    public CopyTechnique(JJKCursedToolsPlugin plugin, CopyManager manager) {
+    private final JJKCursedToolsPlugin plugin;
+
+    public CopyTechnique(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        this.manager = manager;
     }
 
-    @Override public String getId() { return "copy"; }
-    @Override public String getDisplayName() { return "§aCopy"; }
+    @Override public String id() { return "copy"; }
+    @Override public String displayName() { return "§dCopy"; }
+    @Override public String hexColor() { return "#FF66CC"; }
+    @Override public String glyphTag() { return "<glyph:technique_copy:colorable>"; }
+    @Override public String iconColor() { return "§d"; }
 
     @Override
-    public void castAbility(Player player, String ability) {
-        String techId = plugin.techniqueManager().getAssignedId(player.getUniqueId());
-        if (!"copy".equalsIgnoreCase(techId)) {
-            player.sendMessage(plugin.cfg().prefix() + "§cYou don't have the §aCopy§c technique.");
-            return;
-        }
-        player.sendMessage(plugin.cfg().prefix() + "§aAbility: " + ability);
+    public boolean canUse(Player p) {
+        return plugin.copy().canUseCopy(p);
     }
 
-    @Override public void onEquip(Player player) { player.sendMessage(plugin.cfg().prefix() + "§aCopy §7equipped!"); }
-    @Override public void onUnequip(Player player) { player.sendMessage(plugin.cfg().prefix() + "§aCopy §7unequipped."); }
+    @Override
+    public void castAbility(Player player, AbilitySlot slot) {
+        player.sendMessage(plugin.cfg().prefix() + "§cUse /copy <summon|dismiss|beam|storage|ct|shuffle|return>.");
+    }
 }

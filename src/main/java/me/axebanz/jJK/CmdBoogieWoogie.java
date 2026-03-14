@@ -1,21 +1,19 @@
 package me.axebanz.jJK;
 
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
+import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.Locale;
 
-public class CmdBoogieWoogie implements CommandExecutor, TabCompleter {
-    private final JJKCursedToolsPlugin plugin;
-    private final BoogieWoogieManager manager;
+public final class CmdBoogieWoogie implements CommandExecutor, TabCompleter {
 
-    public CmdBoogieWoogie(JJKCursedToolsPlugin plugin, BoogieWoogieManager manager) {
+    private final JJKCursedToolsPlugin plugin;
+    private final BoogieWoogieManager boogie;
+
+    public CmdBoogieWoogie(JJKCursedToolsPlugin plugin, BoogieWoogieManager boogie) {
         this.plugin = plugin;
-        this.manager = manager;
+        this.boogie = boogie;
     }
 
     @Override
@@ -24,22 +22,36 @@ public class CmdBoogieWoogie implements CommandExecutor, TabCompleter {
             sender.sendMessage(plugin.cfg().prefix() + "§cPlayers only.");
             return true;
         }
-        String techId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
-        if (!"boogiewoogie".equalsIgnoreCase(techId)) {
-            p.sendMessage(plugin.cfg().prefix() + "§cYou don't have the §eBoogie Woogie§c technique.");
+
+        // FIXED: Technique exclusivity — must have boogie_woogie equipped, not just any technique
+        String assignedId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
+        if (!"boogie_woogie".equalsIgnoreCase(assignedId)) {
+            p.sendMessage(plugin.cfg().prefix() + "§cYou don't have §bBoogie Woogie§c equipped.");
             return true;
         }
-        String sub = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "swap";
+
+        if (args.length == 0) {
+            p.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " <clap|swap|clear>");
+            return true;
+        }
+
+        String sub = args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
-            case "swap" -> manager.activateSwap(p);
-            default -> p.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " <swap>");
+            case "clap" -> boogie.clapSwap(p);
+            case "swap" -> boogie.swapMarked(p);
+            case "clear" -> boogie.clearMark(p);
+            default -> p.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " <clap|swap|clear>");
         }
         return true;
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (args.length == 1) return List.of("swap");
+        if (!(sender instanceof Player p)) return List.of();
+        String assignedId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
+        if (!"boogie_woogie".equalsIgnoreCase(assignedId)) return List.of();
+
+        if (args.length == 1) return List.of("clap", "swap", "clear");
         return List.of();
     }
 }

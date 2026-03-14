@@ -1,26 +1,21 @@
 package me.axebanz.jJK;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
-public class TechniqueRegistry {
-    private final Map<String, Technique> registry = new HashMap<>();
+public final class TechniqueRegistry {
 
-    public void register(Technique technique) {
-        registry.put(technique.getId().toLowerCase(), technique);
+    private final Map<String, Technique> techniques = new HashMap<>();
+
+    public void register(Technique t) {
+        techniques.put(t.id().toLowerCase(Locale.ROOT), t);
     }
 
     public Technique get(String id) {
         if (id == null) return null;
-        return registry.get(id.toLowerCase());
+        return techniques.get(id.toLowerCase(Locale.ROOT));
     }
 
-    public Collection<Technique> all() {
-        return registry.values();
-    }
-
-    public boolean has(String id) {
-        return id != null && registry.containsKey(id.toLowerCase());
+    public Set<String> ids() {
+        return Collections.unmodifiableSet(techniques.keySet());
     }
 }

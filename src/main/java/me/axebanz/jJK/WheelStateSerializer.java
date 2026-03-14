@@ -1,37 +1,27 @@
 package me.axebanz.jJK;
 
-import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.Player;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 
-public class WheelStateSerializer {
+public final class WheelStateSerializer {
+
     private final JJKCursedToolsPlugin plugin;
-    private final WheelTierManager tierManager;
 
-    public WheelStateSerializer(JJKCursedToolsPlugin plugin, WheelTierManager tierManager) {
+    public WheelStateSerializer(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        this.tierManager = tierManager;
     }
 
-    public void save(UUID uuid) {
-        File f = new File(plugin.getDataFolder(), "wheel/" + uuid + ".yml");
-        f.getParentFile().mkdirs();
-        YamlConfiguration cfg = new YamlConfiguration();
-        cfg.set("tier", tierManager.getTier(uuid));
-        try { cfg.save(f); } catch (IOException e) {
-            plugin.getLogger().warning("Could not save wheel data for " + uuid);
-        }
+    /**
+     * Current wheel state (WheelAdaptationState / WheelTierManager) is in-memory only.
+     * WheelTierManager is not persisted to PlayerProfile yet, so we intentionally do nothing.
+     */
+    public void saveState(UUID uuid, WheelAdaptationState state, PlayerProfile profile) {
+        // no-op
     }
 
-    public void load(UUID uuid) {
-        File f = new File(plugin.getDataFolder(), "wheel/" + uuid + ".yml");
-        if (!f.exists()) return;
-        YamlConfiguration cfg = YamlConfiguration.loadConfiguration(f);
-        tierManager.setTier(uuid, cfg.getInt("tier", 1));
+    /**
+     * Current wheel resets each session; no persisted state is loaded.
+     */
+    public void loadState(UUID uuid, WheelAdaptationState state, PlayerProfile profile) {
+        // no-op
     }
 }

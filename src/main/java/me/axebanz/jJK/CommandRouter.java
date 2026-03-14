@@ -1,50 +1,79 @@
 package me.axebanz.jJK;
 
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
+import org.bukkit.command.*;
+import org.bukkit.entity.Player;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-public class CommandRouter implements CommandExecutor, TabCompleter {
-    private final Map<String, CommandExecutor> routes = new HashMap<>();
-    private final Map<String, TabCompleter> tabRoutes = new HashMap<>();
+public final class CommandRouter implements CommandExecutor, TabCompleter {
 
-    public void register(String subcommand, CommandExecutor executor) {
-        routes.put(subcommand.toLowerCase(), executor);
-        if (executor instanceof TabCompleter) {
-            tabRoutes.put(subcommand.toLowerCase(), (TabCompleter) executor);
+    private final JJKCursedToolsPlugin plugin;
+    private final Map<String, SubCommand> subs = new HashMap<>();
+
+    public CommandRouter(JJKCursedToolsPlugin plugin) {
+        this.plugin = plugin;
+    }
+
+    public void register(SubCommand cmd) {
+        subs.put(cmd.name().toLowerCase(Locale.ROOT), cmd);
+    }
+
+    public void registerDefaults() {
+        register(new CmdGive(plugin));
+        register(new CmdReload(plugin));
+        register(new CmdStatus(plugin));
+        register(new CmdTechnique(plugin));
+        register(new CmdHelp(plugin));
+        register(new CmdPermadeath(plugin));
+        if (plugin.seanceManager() != null) {
+            register(new CmdSetWaitingRoom(plugin, plugin.seanceManager()));
         }
+        register(new CmdRemoveBindingVow(plugin));
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        if (args.length == 0) {
-            sender.sendMessage("§cUsage: /" + label + " <subcommand>");
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length == 0) return subs.get("help").execute(sender, args);
+
+        SubCommand sub = subs.get(args[0].toLowerCase(Locale.ROOT));
+        if (sub == null) return subs.get("help").execute(sender, args);
+
+        if (sub.permission() != null && !sub.permission().isEmpty() && !sender.hasPermission(sub.permission())) {
+            sender.sendMessage(plugin.cfg().prefix() + "§cNo permission.");
             return true;
         }
-        String sub = args[0].toLowerCase();
-        CommandExecutor exec = routes.get(sub);
-        if (exec == null) {
-            sender.sendMessage("§cUnknown subcommand: " + sub);
-            return true;
-        }
-        String[] newArgs = new String[args.length - 1];
-        System.arraycopy(args, 1, newArgs, 0, newArgs.length);
-        return exec.onCommand(sender, cmd, label + " " + sub, newArgs);
+
+        return sub.execute(sender, args);
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (args.length <= 1) return List.copyOf(routes.keySet());
-        String sub = args[0].toLowerCase();
-        TabCompleter completer = tabRoutes.get(sub);
-        if (completer == null) return List.of();
-        String[] newArgs = new String[args.length - 1];
-        System.arraycopy(args, 1, newArgs, 0, newArgs.length);
-        return completer.onTabComplete(sender, cmd, alias, newArgs);
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length == 0) return List.of();
+
+        if (args.length == 1) {
+            List<String> out = new ArrayList<>();
+            for (String k : subs.keySet()) {
+                SubCommand sc = subs.get(k);
+                if (sc.permission() == null || sc.permission().isEmpty() || sender.hasPermission(sc.permission())) {
+                    out.add(k);
+                }
+            }
+            out.sort(String::compareToIgnoreCase);
+            return prefix(out, args[0]);
+        }
+
+        SubCommand sub = subs.get(args[0].toLowerCase(Locale.ROOT));
+        if (sub == null) return List.of();
+        if (sub.permission() != null && !sub.permission().isEmpty() && !sender.hasPermission(sub.permission())) return List.of();
+
+        String[] shifted = Arrays.copyOfRange(args, 1, args.length);
+        return sub.tab(sender, shifted);
+    }
+
+    private List<String> prefix(List<String> list, String start) {
+        if (start == null || start.isEmpty()) return list;
+        List<String> out = new ArrayList<>();
+        for (String s : list) if (s.toLowerCase().startsWith(start.toLowerCase())) out.add(s);
+        return out;
     }
 }

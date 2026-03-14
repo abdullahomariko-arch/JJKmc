@@ -4,7 +4,7 @@ public enum ProjectionState {
     IDLE,
     PROGRAMMING,
     ACTIVE,
-    FROZEN,
-    BREAKER_LUNGE,
-    BREAKER_BACK
+    FROZEN_PENALTY,
+    BREAKER_BACK,
+    BREAKER_LUNGE
 }

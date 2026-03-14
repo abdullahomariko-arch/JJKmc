@@ -1,61 +1,138 @@
-# JJKmc Configuration
+prefix: "§8[§dJJK§8]§r "
 
-prefix: "§5§l[JJK]§r "
+data:
+  persistCooldownsOnDeath: true
 
-# Cursed Energy settings
-cursed-energy:
-  max: 100
-  regen-rate: 2
-  regen-interval: 20
-
-# Projection Sorcery settings
-projection:
-  dash-distance: 10.0
-  dash-cooldown: 5000
-  freeze-duration: 60
-  breaker-cooldown: 8000
-
-# Domain Expansion settings
-domain:
-  radius: 15
-  duration: 300
-  ce-drain: 5
-
-# Séance settings
-seance:
-  incantation-time: 100
-  waiting-room:
-    world: world
-    x: 0.5
-    y: 64.0
-    z: 0.5
-
-# Permadeath settings
 permadeath:
-  enabled: true
+  enabled: false
 
-# Cursed Body settings
-cursed-body:
-  drop-chance: 0.05
+cursedEnergy:
+  max: 10
+  regen:
+    amountPerTick: 1
+    tickSeconds: 4
 
-# Straw Doll settings
-straw-doll:
-  resonance-cooldown: 10000
-  hairpin-cooldown: 15000
+ui:
+  cooldownActionbar:
+    enabled: true
+    preferShortest: true
+  cooldownBossbar:
+    longTimerThresholdSeconds: 45
+  cursedEnergyBossbar:
+    enabled: true
+    title: "§dCursed Energy §8|§r {bar} §7({value}/{max})"
+    filledChar: "■"
+    emptyChar: "□"
+  nullified:
+    titleMain: "§cTECHNIQUE NULLIFIED"
+    subtitle: "§7Your technique is sealed."
+    bossbarTitle: "§cNULLIFIED §8|§r {time}"
 
-# Idle Death Gamble settings
-idle-death-gamble:
-  domain-duration: 120
-  gamble-cooldown: 30000
+techniques:
+  gravity:
+    displayName: "Gravity"
+    color: "#8A2BE2"
 
-# Copy technique settings
-copy:
-  max-copies: 3
+tools:
+  dragon_bone:
+    displayName: "§5Dragon Bone (Ryuukotsu)"
+    material: NETHERITE_SWORD
+    customModelData: 10001
+    ceCost: 2
+    cooldownSeconds: 25
+    dash:
+      speed: 1.55
+      durationTicks: 14
+      bonusDamageHearts: 3.0
+    visuals:
+      sound: "ENTITY_IRON_GOLEM_STEP"
+      particle: "CRIT"
 
-# Creation technique settings
-creation:
-  max-constructs: 5
+  split_soul_katana:
+    displayName: "§fSplit Soul Katana"
+    material: NETHERITE_SWORD
+    customModelData: 10002
+    cooldownSeconds: 65
+    trueDamageHearts: 1.5
+    noRegenSeconds: 15
+    visuals:
+      sound: "ENTITY_WITHER_HURT"
+      particle: "SWEEP_ATTACK"
 
-# Wheel adaptation settings
-wheel:
-  max-tier: 5
+  kamutoke:
+    displayName: "§bKamutoke"
+    material: NETHERITE_AXE
+    customModelData: 10003
+    ceCost: 3
+    cooldownSeconds: 120
+    lightning:
+      strikes: 7
+      radius: 7.0
+      minDamageHearts: 3.0
+      strikeDelayTicks: 6
+    visuals:
+      cloudParticle: "CLOUD"
+      sound: "ENTITY_LIGHTNING_BOLT_THUNDER"
+
+  inverted_spear:
+    displayName: "§6Inverted Spear of Heaven"
+    material: NETHERITE_SWORD
+    customModelData: 10004
+    nullifySeconds: 600
+    visuals:
+      sound: "BLOCK_END_PORTAL_SPAWN"
+      particle: "ENCHANT"
+      title: "§cTECHNIQUE NULLIFIED"
+
+  divine_wheel:
+    displayName: "§fDivine Wheel of Absolute Adaptation"
+    material: NETHERITE_HELMET
+    customModelData: 10005
+    unbreakable: true
+
+  playfulcloud:
+    displayName: "§bPlayful Cloud"
+    material: NETHERITE_SWORD
+    customModelData: 10006
+    unbreakable: true
+
+  yuta_ring:
+    material: NETHERITE_INGOT
+    displayName: "§dYuta's Ring"
+    customModelData: 10000
+    unbreakable: true
+
+  imbued_cursed_katana:
+    material: NETHERITE_SWORD
+    displayName: "§5Imbued Cursed Katana"
+    customModelData: 10007
+    unbreakable: true
+
+  cursed_body:
+    displayName: "§9Cursed Body"
+    material: ROTTEN_FLESH
+    customModelData: 10008
+
+  hammer:
+    displayName: "§6Straw Doll Hammer"
+    material: BOW
+    customModelData: 10009
+    unbreakable: true
+    attackDamage: 7.0
+
+  nail:
+    displayName: "§7Cursed Nail"
+    material: ARROW
+    customModelData: 10010
+
+  wheel:
+    categories:
+      - MELEE
+      - PROJECTILE
+      - EXPLOSION
+      - FIRE
+      - LIGHTNING
+      - TECHNIQUE
+    maxStacks: 5
+    reductionPerStack: 0.10
+    maxReduction: 0.60

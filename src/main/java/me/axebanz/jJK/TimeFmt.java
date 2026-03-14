@@ -1,17 +1,12 @@
 package me.axebanz.jJK;
 
-public class TimeFmt {
-    public static String format(long millis) {
-        long seconds = millis / 1000;
-        long minutes = seconds / 60;
-        seconds = seconds % 60;
-        if (minutes > 0) {
-            return minutes + "m" + seconds + "s";
-        }
-        return seconds + "s";
-    }
+public final class TimeFmt {
+    private TimeFmt() {}
 
-    public static String formatTicks(int ticks) {
-        return format((long) ticks * 50L);
+    public static String mmss(long totalSeconds) {
+        long m = totalSeconds / 60;
+        long s = totalSeconds % 60;
+        return m + ":" + (s < 10 ? "0" + s : String.valueOf(s));
     }
 }
+

@@ -2,18 +2,26 @@ package me.axebanz.jJK;
 
 import java.util.UUID;
 
-public class CreationState {
-    private final UUID uuid;
-    private int constructCount;
-    private boolean workshopOpen;
+public final class CreationState {
 
-    public CreationState(UUID uuid) {
-        this.uuid = uuid;
+    private UUID playerUuid;
+    private CreationCategory currentCategory = CreationCategory.BLOCKS;
+
+    public CreationState(UUID playerUuid) {
+        this.playerUuid = playerUuid;
     }
 
-    public UUID getUuid() { return uuid; }
-    public int getConstructCount() { return constructCount; }
-    public void setConstructCount(int count) { this.constructCount = count; }
-    public boolean isWorkshopOpen() { return workshopOpen; }
-    public void setWorkshopOpen(boolean open) { this.workshopOpen = open; }
+    public CreationCategory getCurrentCategory() { return currentCategory; }
+
+    public void shuffleNext() {
+        this.currentCategory = currentCategory.next();
+    }
+
+    public void setCategory(CreationCategory category) {
+        this.currentCategory = category;
+    }
+
+    public void reset() {
+        this.currentCategory = CreationCategory.BLOCKS;
+    }
 }

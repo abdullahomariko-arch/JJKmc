@@ -1,33 +1,73 @@
 package me.axebanz.jJK;
 
 import org.bukkit.Location;
-import org.bukkit.Material;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
-/**
- * Listens for block events in domain expansions.
- * Bug Fix #5: onBlockBreak priority = HIGHEST, ignoreCancelled = false to prevent
- * barrier blocks from ever being broken.
- */
-public class DomainListener implements Listener {
+import java.util.Iterator;
+
+public final class DomainListener implements Listener {
+
     private final JJKCursedToolsPlugin plugin;
-    private final DomainManager domainManager;
 
-    public DomainListener(JJKCursedToolsPlugin plugin, DomainManager domainManager) {
+    public DomainListener(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        this.domainManager = domainManager;
     }
 
-    // Bug Fix #5: HIGHEST priority, ignoreCancelled = false
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onBlockBreak(BlockBreakEvent event) {
-        Location loc = event.getBlock().getLocation();
-        // If this block is a barrier block in any active domain, prevent breaking
-        if (domainManager.isBarrierBlock(loc)) {
-            event.setCancelled(true);
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBlockBreak(BlockBreakEvent e) {
+        Location loc = e.getBlock().getLocation();
+        DomainExpansion domain = plugin.domainManager().getDomainAt(loc);
+        if (domain != null && domain.isProtectedBlock(loc)) {
+            e.setCancelled(true);
+            e.getPlayer().sendMessage(plugin.cfg().prefix() + "§cYou cannot break blocks inside a domain!");
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBlockPlace(BlockPlaceEvent e) {
+        Location loc = e.getBlock().getLocation();
+        DomainExpansion domain = plugin.domainManager().getDomainAt(loc);
+        if (domain != null && domain.isProtectedBlock(loc)) {
+            e.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPlayerDeath(PlayerDeathEvent e) {
+        Player p = e.getPlayer();
+        DomainExpansion domain = plugin.domainManager().getDomain(p);
+        if (domain != null) {
+            plugin.domainManager().collapse(p);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent e) {
+        Player p = e.getPlayer();
+        DomainExpansion domain = plugin.domainManager().getDomain(p);
+        if (domain != null) {
+            plugin.domainManager().collapse(p);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onExplosion(EntityExplodeEvent e) {
+        Iterator<org.bukkit.block.Block> it = e.blockList().iterator();
+        while (it.hasNext()) {
+            org.bukkit.block.Block block = it.next();
+            Location loc = block.getLocation();
+            DomainExpansion domain = plugin.domainManager().getDomainAt(loc);
+            if (domain != null && domain.isProtectedBlock(loc)) {
+                it.remove();
+            }
         }
     }
 }

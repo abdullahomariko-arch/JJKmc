@@ -1,66 +1,60 @@
-name: JJKmc
-version: '${project.version}'
-main: me.axebanz.jJK.JJKCursedToolsPlugin
-api-version: '1.20'
-description: Jujutsu Kaisen Minecraft Plugin
 
-commands:
-  jjk:
-    description: Main JJK command
-    usage: /jjk <subcommand>
-  projection:
-    description: Projection Sorcery technique commands
-    usage: /projection <subcommand>
-  creation:
-    description: Creation technique commands
-    usage: /creation <subcommand>
-  domain:
-    description: Domain Expansion command
-    usage: /domain
-  seance:
-    description: Seance technique command
-    usage: /seance
-  strawdoll:
-    description: Straw Doll technique commands
-    usage: /strawdoll <subcommand>
-  copy:
-    description: Copy technique command
-    usage: /copy <subcommand>
-  idledeathgamble:
-    description: Idle Death Gamble technique commands
-    usage: /idledeathgamble <subcommand>
-  boogiewoogie:
-    description: Boogie Woogie technique commands
-    usage: /boogiewoogie <subcommand>
-  cursedspeech:
-    description: Cursed Speech technique commands
-    usage: /cursedspeech <subcommand>
-  technique:
-    description: Manage your technique
-    usage: /technique <subcommand>
-  jjkgive:
-    description: Give JJK items
-    usage: /jjkgive <player> <item> [amount]
-  permadeath:
-    description: Permadeath management
-    usage: /permadeath <subcommand>
-  setwaitingroom:
-    description: Set waiting room location
-    usage: /setwaitingroom
-  wheel:
-    description: Wheel of Fortune technique commands
-    usage: /wheel <subcommand>
-  status:
-    description: Show player status
-    usage: /status
-  removebindingvow:
-    description: Remove binding vow
-    usage: /removebindingvow <player>
+  name: JJKCursedTools
+  main: me.axebanz.jJK.JJKCursedToolsPlugin
+  version: 1.0
+  api-version: "1.21"
+  depend: [ModelEngine]
 
-permissions:
-  jjk.admin:
-    description: Full admin access
-    default: op
-  jjk.use:
-    description: Use JJK abilities
-    default: true
+  commands:
+    jjk:
+      description: "Main JJK command"
+      usage: "/jjk"
+
+    wheel:
+      description: "Divine Wheel commands"
+      usage: "/wheel"
+
+    creation:
+      description: "Creation technique commands"
+      usage: "/creation"
+
+    cursedspeach:
+      description: "Use Cursed Speech abilities (only works if you have the technique)"
+      aliases: [cs]
+      usage: "/cursedspeach <nomove|plummet|explode>"
+
+    boogiewoogie:
+      description: "Use Boogie Woogie abilities (only works if you have the technique)"
+      aliases: [bw]
+      usage: "/boogiewoogie <clap|swap|clear>"
+
+    copy:
+      description: "Use Copy technique abilities (requires bonding with Yuta's Ring)"
+      usage: "/copy <summon|dismiss|beam|storage|ct>"
+
+    projection:
+      description: "Use Projection Sorcery abilities"
+      aliases: [proj]
+      usage: "/projection <dash|cancel|status>"
+
+    domain:
+      description: "Domain Expansion commands"
+      usage: "/domain <expand|collapse|status>"
+
+    idg:
+      description: "Idle Death Gamble (Hakari's Domain)"
+      usage: "/idg <expand|spin|status>"
+
+    seance:
+      description: "Séance technique commands"
+      usage: "/seance <activate|status|cancel>"
+
+    strawdoll:
+      description: "Straw Doll Technique commands"
+      aliases: [sd]
+      usage: "/strawdoll <resonance|hairpin|status>"
+
+    tenshadows:
+      description: "Ten Shadows Technique commands"
+      aliases: [ts]
+      usage: "/tenshadows <summon|dismiss|ritual|list|status>"

@@ -1,12 +1,31 @@
 package me.axebanz.jJK;
 
-public class ToolId {
-    public static final String SPLIT_SOUL_KATANA = "split_soul_katana";
-    public static final String CURSED_BLADE = "cursed_blade";
-    public static final String STRAW_DOLL_HAMMER = "straw_doll_hammer";
-    public static final String STRAW_DOLL_NAIL = "straw_doll_nail";
-    public static final String CURSED_BODY = "cursed_body";
-    public static final String BINDING_VOW_SCROLL = "binding_vow_scroll";
-    public static final String CURSED_TOOL = "cursed_tool";
-    public static final String DOMAIN_SCROLL = "domain_scroll";
+public enum ToolId {
+    DRAGON_BONE("dragon_bone"),
+    SPLIT_SOUL_KATANA("split_soul_katana"),
+    KAMUTOKE("kamutoke"),
+    INVERTED_SPEAR("inverted_spear"),
+
+    DIVINE_WHEEL("divine_wheel"),
+    PLAYFULCLOUD("playfulcloud"),
+
+    YUTA_RING("yuta_ring"),
+
+    IMBUED_CURSED_KATANA("imbued_cursed_katana"),
+
+    CURSED_BODY("cursed_body"),
+
+    STRAW_DOLL_HAMMER("hammer"),
+    STRAW_DOLL_NAIL("nail");
+
+    public final String id;
+    ToolId(String id) { this.id = id; }
+
+    public static ToolId from(String s) {
+        if (s == null) return null;
+        for (ToolId t : values()) if (t.id.equalsIgnoreCase(s)) return t;
+        if (s.equalsIgnoreCase("straw_doll_hammer")) return STRAW_DOLL_HAMMER;
+        if (s.equalsIgnoreCase("straw_doll_nail")) return STRAW_DOLL_NAIL;
+        return null;
+    }
 }

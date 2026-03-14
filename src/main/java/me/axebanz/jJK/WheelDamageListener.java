@@ -3,24 +3,25 @@ package me.axebanz.jJK;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 
-public class WheelDamageListener implements Listener {
-    private final JJKCursedToolsPlugin plugin;
-    private final WheelTierManager tierManager;
+public final class WheelDamageListener implements Listener {
 
-    public WheelDamageListener(JJKCursedToolsPlugin plugin, WheelTierManager tierManager) {
-        this.plugin = plugin;
-        this.tierManager = tierManager;
+    private final WheelCombatHandler wheelCombat;
+
+    public WheelDamageListener(WheelCombatHandler wheelCombat) {
+        this.wheelCombat = wheelCombat;
     }
 
     @EventHandler
-    public void onEntityDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Player attacker)) return;
-        String techId = plugin.techniqueManager().getAssignedId(attacker.getUniqueId());
-        if (!"wheel".equalsIgnoreCase(techId)) return;
-        // Tier-based damage bonus
-        int tier = tierManager.getTier(attacker.getUniqueId());
-        event.setDamage(event.getDamage() * (1.0 + tier * 0.1));
+    public void onAnyDamage(EntityDamageEvent e) {
+        if (e.isCancelled()) return;
+        if (!(e.getEntity() instanceof Player victim)) return;
+
+        // Fire/lava/hot-floor are environmental => handle here
+        switch (e.getCause()) {
+            case FIRE, FIRE_TICK, LAVA, HOT_FLOOR -> wheelCombat.handleWheelDefense(e, victim);
+            default -> {}
+        }
     }
 }

@@ -1,25 +1,32 @@
 package me.axebanz.jJK;
 
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 
-public class CopyLifecycleListener implements Listener {
+public final class CopyLifecycleListener implements Listener {
+
     private final JJKCursedToolsPlugin plugin;
-    private final CopyManager copyManager;
+    private int taskId = -1;
 
-    public CopyLifecycleListener(JJKCursedToolsPlugin plugin, CopyManager copyManager) {
+    public CopyLifecycleListener(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        this.copyManager = copyManager;
+    }
+
+    public void start() {
+        if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId);
+
+        taskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                plugin.copy().tickPlayer(p);
+            }
+        }, 20L, 20L);
     }
 
     @EventHandler
-    public void onEntityDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Player attacker)) return;
-        String techId = plugin.techniqueManager().getAssignedId(attacker.getUniqueId());
-        if (!"copy".equalsIgnoreCase(techId)) return;
-        // Copy lifecycle logic
+    public void onJoin(PlayerJoinEvent e) {
+        plugin.copy().tickPlayer(e.getPlayer());
     }
 }

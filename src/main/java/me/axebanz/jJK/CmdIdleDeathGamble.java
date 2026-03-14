@@ -9,17 +9,12 @@ import org.bukkit.entity.Player;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * /idledeathgamble command handler.
- * Bug Fix #3: Checks that the player has "idle_death_gamble" technique assigned.
- */
-public class CmdIdleDeathGamble implements CommandExecutor, TabCompleter {
-    private final JJKCursedToolsPlugin plugin;
-    private final IdleDeathGambleManager manager;
+public final class CmdIdleDeathGamble implements CommandExecutor, TabCompleter {
 
-    public CmdIdleDeathGamble(JJKCursedToolsPlugin plugin, IdleDeathGambleManager manager) {
+    private final JJKCursedToolsPlugin plugin;
+
+    public CmdIdleDeathGamble(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        this.manager = manager;
     }
 
     @Override
@@ -29,33 +24,55 @@ public class CmdIdleDeathGamble implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // Bug Fix #3: technique exclusivity
-        String techId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
-        if (!"idle_death_gamble".equalsIgnoreCase(techId)) {
-            p.sendMessage(plugin.cfg().prefix() + "§cYou don't have the §eIdle Death Gamble§c technique.");
+        if (plugin.idgManager() == null) {
+            p.sendMessage(plugin.cfg().prefix() + "§cIDG system not loaded.");
             return true;
         }
 
-        if (args.length == 0) {
-            p.sendMessage(plugin.cfg().prefix() + "§eIdle Death Gamble:");
-            p.sendMessage("§f/" + label + " gamble §7— Trigger gamble");
-            p.sendMessage("§f/" + label + " domain §7— Open domain");
-            return true;
-        }
+        String sub = args.length == 0 ? "help" : args[0].toLowerCase(Locale.ROOT);
 
-        String sub = args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
-            case "gamble" -> manager.triggerGamble(p);
-            case "domain" -> manager.openDomain(p);
-            default -> p.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " <gamble|domain>");
+            case "expand" -> {
+                Technique tech = plugin.techniqueRegistry().get("idle_death_gamble");
+                if (tech != null) tech.castAbility(p, AbilitySlot.ONE);
+                else p.sendMessage(plugin.cfg().prefix() + "§cIdle Death Gamble technique not registered.");
+                return true;
+            }
+            case "spin" -> {
+                plugin.idgManager().spin(p);
+                return true;
+            }
+            case "status" -> {
+                IdleDeathGambleManager.IDGGameState state = plugin.idgManager().getState(p.getUniqueId());
+                if (state == null) {
+                    p.sendMessage(plugin.cfg().prefix() + "§7No IDG game active.");
+                    return true;
+                }
+                if (state.jackpotActive) {
+                    long rem = plugin.idgManager().getJackpotTimeRemaining(p.getUniqueId());
+                    long secs = rem / 20;
+                    p.sendMessage(plugin.cfg().prefix() + "§6★ JACKPOT ACTIVE §8| §fTime: §e" + TimeFmt.mmss(secs));
+                } else if (state.domainActive) {
+                    p.sendMessage(plugin.cfg().prefix() + "§6IDG Domain §8| §fSpins: §e" + state.spinCount + "§f/" + IdleDeathGambleManager.MAX_SPINS
+                            + " §8| §aG:" + state.greenIndicators + " §cR:" + state.redIndicators + " §6Au:" + state.goldIndicators);
+                } else {
+                    p.sendMessage(plugin.cfg().prefix() + "§7IDG inactive.");
+                }
+                return true;
+            }
+            default -> {
+                p.sendMessage(plugin.cfg().prefix() + "§6Idle Death Gamble:");
+                p.sendMessage("§f/" + label + " expand §7— Open domain");
+                p.sendMessage("§f/" + label + " spin §7— Spin the pachinko");
+                p.sendMessage("§f/" + label + " status §7— Show game state");
+                return true;
+            }
         }
-        return true;
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (!(sender instanceof Player)) return List.of();
-        if (args.length == 1) return List.of("gamble", "domain");
+        if (args.length == 1) return List.of("expand", "spin", "status");
         return List.of();
     }
 }

@@ -1,42 +1,59 @@
 package me.axebanz.jJK;
 
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
+import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.Locale;
 
-public class CmdCursedSpeech implements CommandExecutor, TabCompleter {
-    private final JJKCursedToolsPlugin plugin;
-    private final CursedSpeechManager manager;
+public final class CmdCursedSpeech implements CommandExecutor, TabCompleter {
 
-    public CmdCursedSpeech(JJKCursedToolsPlugin plugin, CursedSpeechManager manager) {
+    private final JJKCursedToolsPlugin plugin;
+    private final CursedSpeechManager cursedSpeech;
+
+    public CmdCursedSpeech(JJKCursedToolsPlugin plugin, CursedSpeechManager cursedSpeech) {
         this.plugin = plugin;
-        this.manager = manager;
+        this.cursedSpeech = cursedSpeech;
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player p)) {
             sender.sendMessage(plugin.cfg().prefix() + "§cPlayers only.");
             return true;
         }
-        String techId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
-        if (!"cursedspeech".equalsIgnoreCase(techId)) {
-            p.sendMessage(plugin.cfg().prefix() + "§cYou don't have the §7Cursed Speech§c technique.");
+
+        // FIXED: Technique exclusivity — must have cursed_speech equipped
+        String assignedId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
+        if (!"cursed_speech".equalsIgnoreCase(assignedId)) {
+            p.sendMessage(plugin.cfg().prefix() + "§cYou don't have §fCursed Speech§c equipped.");
             return true;
         }
-        String command = args.length > 0 ? String.join(" ", args) : "silence";
-        manager.activateCommand(p, command);
+
+        if (args.length == 0) {
+            p.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " <nomove|plummet|explode>");
+            return true;
+        }
+
+        String sub = args[0].toLowerCase(Locale.ROOT);
+
+        switch (sub) {
+            case "nomove", "dontmove", "dont_move", "no_move" -> cursedSpeech.castNoMove(p);
+            case "plummet" -> cursedSpeech.castPlummet(p);
+            case "explode" -> cursedSpeech.castExplode(p);
+            default -> p.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " <nomove|plummet|explode>");
+        }
+
         return true;
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (args.length == 1) return List.of("silence", "freeze", "burn");
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (!(sender instanceof Player p)) return List.of();
+        String assignedId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
+        if (!"cursed_speech".equalsIgnoreCase(assignedId)) return List.of();
+
+        if (args.length == 1) return List.of("nomove", "plummet", "explode");
         return List.of();
     }
 }

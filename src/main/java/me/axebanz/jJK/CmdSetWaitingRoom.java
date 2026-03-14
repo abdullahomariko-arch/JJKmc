@@ -1,42 +1,37 @@
 package me.axebanz.jJK;
 
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
 import java.util.List;
 
-public class CmdSetWaitingRoom implements CommandExecutor, TabCompleter {
-    private final JJKCursedToolsPlugin plugin;
+public final class CmdSetWaitingRoom implements SubCommand {
 
-    public CmdSetWaitingRoom(JJKCursedToolsPlugin plugin) {
+    private final JJKCursedToolsPlugin plugin;
+    private final SeanceManager seanceManager;
+
+    public CmdSetWaitingRoom(JJKCursedToolsPlugin plugin, SeanceManager seanceManager) {
         this.plugin = plugin;
+        this.seanceManager = seanceManager;
     }
 
+    @Override public String name() { return "setwaitingroom"; }
+    @Override public String permission() { return "jjk.admin"; }
+
     @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        if (!sender.hasPermission("jjk.admin")) {
-            sender.sendMessage(plugin.cfg().prefix() + "§cNo permission.");
-            return true;
-        }
+    public boolean execute(CommandSender sender, String[] args) {
+        String pref = plugin.cfg().prefix();
         if (!(sender instanceof Player p)) {
-            sender.sendMessage(plugin.cfg().prefix() + "§cPlayers only.");
+            sender.sendMessage(pref + "§cPlayers only.");
             return true;
         }
-        org.bukkit.Location loc = p.getLocation();
-        plugin.getConfig().set("seance.waiting-room.world", loc.getWorld().getName());
-        plugin.getConfig().set("seance.waiting-room.x", loc.getX());
-        plugin.getConfig().set("seance.waiting-room.y", loc.getY());
-        plugin.getConfig().set("seance.waiting-room.z", loc.getZ());
-        plugin.saveConfig();
-        p.sendMessage(plugin.cfg().prefix() + "§aWaiting room set to your current location.");
+        seanceManager.saveWaitingRoom(p.getLocation());
+        sender.sendMessage(pref + "§aWaiting room location set to your current position.");
         return true;
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
+    public List<String> tab(CommandSender sender, String[] args) {
         return List.of();
     }
 }

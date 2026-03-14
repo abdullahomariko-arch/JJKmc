@@ -2,47 +2,50 @@ package me.axebanz.jJK;
 
 import org.bukkit.entity.Player;
 
-/**
- * Idle Death Gamble technique.
- * Bug Fix #3: castAbility checks that the player has "idle_death_gamble" assigned.
- */
-public class IdleDeathGambleTechnique implements Technique {
-    private final JJKCursedToolsPlugin plugin;
-    private final IdleDeathGambleManager manager;
+public final class IdleDeathGambleTechnique implements Technique {
 
-    public IdleDeathGambleTechnique(JJKCursedToolsPlugin plugin, IdleDeathGambleManager manager) {
+    private final JJKCursedToolsPlugin plugin;
+
+    public IdleDeathGambleTechnique(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        this.manager = manager;
     }
 
-    @Override
-    public String getId() { return "idle_death_gamble"; }
+    @Override public String id() { return "idle_death_gamble"; }
+    @Override public String displayName() { return "§6§lIdle Death Gamble"; }
+    @Override public String hexColor() { return "#FFD700"; }
+    @Override public String glyphTag() { return "<glyph:technique_idg:colorable>"; }
+    @Override public String iconColor() { return "§6"; }
 
     @Override
-    public String getDisplayName() { return "§eIdle Death Gamble"; }
+    public boolean canUse(Player p) { return true; }
 
     @Override
-    public void castAbility(Player player, String ability) {
-        // Bug Fix #3: Check player has idle_death_gamble technique
-        String techId = plugin.techniqueManager().getAssignedId(player.getUniqueId());
-        if (!"idle_death_gamble".equalsIgnoreCase(techId)) {
-            player.sendMessage(plugin.cfg().prefix() + "§cYou don't have the §eIdle Death Gamble§c technique.");
+    public void castAbility(Player player, AbilitySlot slot) {
+        if (slot == AbilitySlot.ONE) {
+            expandDomain(player);
+        } else {
+            player.sendMessage(plugin.cfg().prefix() + "§6IDG: §7Slot 1 = Open Domain");
+        }
+    }
+
+    private void expandDomain(Player player) {
+        if (plugin.idgManager() == null || plugin.domainManager() == null) return;
+
+        if (plugin.cooldowns().isOnCooldown(player.getUniqueId(), "idg.expand")) {
+            long rem = plugin.cooldowns().remainingSeconds(player.getUniqueId(), "idg.expand");
+            player.sendMessage(plugin.cfg().prefix() + "§cIDG Domain on cooldown: §f" + TimeFmt.mmss(rem));
             return;
         }
-        switch (ability.toLowerCase()) {
-            case "gamble" -> manager.triggerGamble(player);
-            case "domain" -> manager.openDomain(player);
-            default -> player.sendMessage(plugin.cfg().prefix() + "§cUnknown ability: " + ability);
+
+        if (plugin.domainManager().getDomain(player) != null) {
+            player.sendMessage(plugin.cfg().prefix() + "§cYou already have an active domain!");
+            return;
         }
-    }
 
-    @Override
-    public void onEquip(Player player) {
-        player.sendMessage(plugin.cfg().prefix() + "§eIdle Death Gamble §7equipped!");
-    }
+        IdleDeathGambleDomain domain = new IdleDeathGambleDomain(plugin, player, plugin.idgManager());
+        plugin.domainManager().expand(player, domain);
+        plugin.idgManager().startGame(player);
 
-    @Override
-    public void onUnequip(Player player) {
-        player.sendMessage(plugin.cfg().prefix() + "§eIdle Death Gamble §7unequipped.");
+        plugin.cooldowns().setCooldown(player.getUniqueId(), "idg.expand", 30);
     }
 }

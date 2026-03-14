@@ -2,28 +2,16 @@ package me.axebanz.jJK;
 
 import org.bukkit.entity.Player;
 
-public class CursedSpeechTechnique implements Technique {
-    private final JJKCursedToolsPlugin plugin;
-    private final CursedSpeechManager manager;
+public final class CursedSpeechTechnique implements Technique {
 
-    public CursedSpeechTechnique(JJKCursedToolsPlugin plugin, CursedSpeechManager manager) {
-        this.plugin = plugin;
-        this.manager = manager;
-    }
-
-    @Override public String getId() { return "cursedspeech"; }
-    @Override public String getDisplayName() { return "§7Cursed Speech"; }
+    @Override public String id() { return "cursed_speech"; }
+    @Override public String displayName() { return "§fCursed Speech"; }
+    @Override public String hexColor() { return "#7CFC00"; }
+    @Override public String glyphTag() { return "<glyph:technique_cursed_speech:colorable>"; }
+    @Override public String iconColor() { return "§a"; }
 
     @Override
-    public void castAbility(Player player, String ability) {
-        String techId = plugin.techniqueManager().getAssignedId(player.getUniqueId());
-        if (!"cursedspeech".equalsIgnoreCase(techId)) {
-            player.sendMessage(plugin.cfg().prefix() + "§cYou don't have the §7Cursed Speech§c technique.");
-            return;
-        }
-        manager.activateCommand(player, ability);
+    public void castAbility(Player player, AbilitySlot slot) {
+        player.sendMessage(JJKCursedToolsPlugin.get().cfg().prefix() + "§cUse /cursedspeach <nomove|plummet|explode>.");
     }
-
-    @Override public void onEquip(Player player) { player.sendMessage(plugin.cfg().prefix() + "§7Cursed Speech §7equipped!"); }
-    @Override public void onUnequip(Player player) { player.sendMessage(plugin.cfg().prefix() + "§7Cursed Speech §7unequipped."); }
 }

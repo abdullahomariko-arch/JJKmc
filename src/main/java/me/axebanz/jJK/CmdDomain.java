@@ -9,13 +9,12 @@ import org.bukkit.entity.Player;
 import java.util.List;
 import java.util.Locale;
 
-public class CmdDomain implements CommandExecutor, TabCompleter {
-    private final JJKCursedToolsPlugin plugin;
-    private final DomainManager domainManager;
+public final class CmdDomain implements CommandExecutor, TabCompleter {
 
-    public CmdDomain(JJKCursedToolsPlugin plugin, DomainManager domainManager) {
+    private final JJKCursedToolsPlugin plugin;
+
+    public CmdDomain(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        this.domainManager = domainManager;
     }
 
     @Override
@@ -24,26 +23,55 @@ public class CmdDomain implements CommandExecutor, TabCompleter {
             sender.sendMessage(plugin.cfg().prefix() + "§cPlayers only.");
             return true;
         }
-        String sub = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "open";
+
+        String sub = args.length == 0 ? "help" : args[0].toLowerCase(Locale.ROOT);
+
         switch (sub) {
-            case "open" -> {
-                String techId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
-                if (techId == null) {
-                    p.sendMessage(plugin.cfg().prefix() + "§cNo technique assigned.");
+            case "expand" -> {
+                // Delegate to technique
+                Technique tech = plugin.techniqueRegistry().get(
+                        plugin.techniqueManager().getAssignedId(p.getUniqueId()));
+                if (tech == null) {
+                    p.sendMessage(plugin.cfg().prefix() + "§cYou don't have a technique assigned.");
                     return true;
                 }
-                // Domain opening is handled by technique managers
-                p.sendMessage(plugin.cfg().prefix() + "§5Domain ability triggered.");
+                tech.castAbility(p, AbilitySlot.ONE);
+                return true;
             }
-            case "close" -> domainManager.closeDomain(p);
-            default -> p.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " [open|close]");
+            case "collapse" -> {
+                DomainExpansion domain = plugin.domainManager().getDomain(p);
+                if (domain == null) {
+                    p.sendMessage(plugin.cfg().prefix() + "§7You have no active domain.");
+                    return true;
+                }
+                plugin.domainManager().collapse(p);
+                p.sendMessage(plugin.cfg().prefix() + "§aDomain collapsed.");
+                return true;
+            }
+            case "status" -> {
+                DomainExpansion domain = plugin.domainManager().getDomain(p);
+                if (domain == null) {
+                    p.sendMessage(plugin.cfg().prefix() + "§7No active domain.");
+                } else {
+                    p.sendMessage(plugin.cfg().prefix() + "§aDomain: §f" + domain.getName()
+                            + " §8| §aRadius: §f" + domain.getRadius()
+                            + " §8| §aRefinement: §f" + domain.getRefinement());
+                }
+                return true;
+            }
+            default -> {
+                p.sendMessage(plugin.cfg().prefix() + "§aDomain Expansion:");
+                p.sendMessage("§f/" + label + " expand §7— Expand your domain");
+                p.sendMessage("§f/" + label + " collapse §7— Manually collapse domain");
+                p.sendMessage("§f/" + label + " status §7— Show domain info");
+                return true;
+            }
         }
-        return true;
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (args.length == 1) return List.of("open", "close");
+        if (args.length == 1) return List.of("expand", "collapse", "status");
         return List.of();
     }
 }

@@ -10,6 +10,7 @@ import org.bukkit.boss.BarColor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.GameMode;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.Vector;
 
@@ -139,36 +140,48 @@ public final class AbilityService {
         }
     }
 
+    // FIXED: Split Soul Katana — only does special true damage effect on PLAYERS.
+    // On mobs, it acts as a normal netherite sword (no setHealth, no regen lock, no crash).
     public void handleSplitSoulHit(Player attacker, LivingEntity target) {
-        ConfigurationSection sec = cfg.c().getConfigurationSection("tools.split_soul_katana");
-        if (sec == null) return;
+        // ONLY apply special effect to players
+        if (!(target instanceof Player tp)) {
+            // Mobs: do nothing special — the sword acts as a normal netherite sword
+            return;
+        }
 
-        double trueDamageHearts = sec.getDouble("trueDamageHearts", 2.5);
-        int noRegenSeconds = sec.getInt("noRegenSeconds", 15);
+        try {
+            ConfigurationSection sec = cfg.c().getConfigurationSection("tools.split_soul_katana");
+            if (sec == null) return;
 
-        double dmg = trueDamageHearts * 2.0;
+            GameMode gm = tp.getGameMode();
+            if (gm == GameMode.CREATIVE || gm == GameMode.SPECTATOR) return;
 
-        if (target instanceof Player tp) {
-            tp.setHealth(Math.max(0.0, tp.getHealth() - dmg));
+            if (tp.isInvulnerable()) return;
+
+            double trueDamageHearts = sec.getDouble("trueDamageHearts", 2.5);
+            int noRegenSeconds = sec.getInt("noRegenSeconds", 15);
+
+            double dmg = trueDamageHearts * 2.0;
+
+            double newHealth = Math.max(1.0, tp.getHealth() - dmg);
+            tp.setHealth(newHealth);
             regenLock.lock(tp.getUniqueId(), noRegenSeconds);
 
             ItemStack helmet = tp.getInventory().getHelmet();
             if (plugin.tools().identify(helmet) == ToolId.DIVINE_WHEEL) {
                 plugin.wheelTierManager().recordCategoryHit(tp.getUniqueId(), AdaptationCategory.TRUE_DAMAGE, dmg, tp);
             }
-        } else {
-            target.damage(dmg, attacker);
-        }
 
-        Particle particle = safeParticle(sec.getString("visuals.particle", "SWEEP_ATTACK"), Particle.SWEEP_ATTACK);
-        Sound sound = safeSound(sec.getString("visuals.sound", "ENTITY_WITHER_HURT"), Sound.ENTITY_WITHER_HURT);
+            Particle particle = safeParticle(sec.getString("visuals.particle", "SWEEP_ATTACK"), Particle.SWEEP_ATTACK);
+            Sound sound = safeSound(sec.getString("visuals.sound", "ENTITY_WITHER_HURT"), Sound.ENTITY_WITHER_HURT);
 
-        Location mid = target.getLocation().clone().add(0, 1.0, 0);
-        target.getWorld().spawnParticle(particle, mid, 12, 0.25, 0.25, 0.25, 0.01);
-        target.getWorld().playSound(target.getLocation(), sound, 1.0f, 0.9f);
+            Location mid = tp.getLocation().clone().add(0, 1.0, 0);
+            tp.getWorld().spawnParticle(particle, mid, 12, 0.25, 0.25, 0.25, 0.01);
+            tp.getWorld().playSound(tp.getLocation(), sound, 1.0f, 0.9f);
 
-        if (target instanceof Player tp) {
             actionbar.setTimer(tp.getUniqueId(), "split_soul.noregen", "■", "§f", noRegenSeconds);
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error in handleSplitSoulHit: " + e.getMessage());
         }
     }
 
@@ -239,7 +252,6 @@ public final class AbilityService {
         int nullifySeconds = sec.getInt("nullifySeconds", 600);
 
         if (plugin.techniqueManager().getAssigned(victim.getUniqueId()) == null) return;
-
         if (nullify.isNullified(victim.getUniqueId())) return;
 
         nullify.applyNullify(victim, attacker, nullifySeconds);
@@ -268,22 +280,17 @@ public final class AbilityService {
 
     private Particle safeParticle(String name, Particle fallback) {
         if (name == null || name.isBlank()) return fallback;
-
         String lowered = name.trim().toLowerCase();
         String keyStr = lowered.contains(":") ? lowered : "minecraft:" + lowered;
-
         NamespacedKey key = NamespacedKey.fromString(keyStr);
         if (key == null) return fallback;
-
         Particle p = Registry.PARTICLE_TYPE.get(key);
         return (p != null) ? p : fallback;
     }
 
     private Sound safeSound(String name, Sound fallback) {
         if (name == null || name.isBlank()) return fallback;
-
         String lowered = name.trim().toLowerCase();
-
         String keyStr;
         if (lowered.contains(":")) {
             keyStr = lowered;
@@ -292,10 +299,8 @@ public final class AbilityService {
         } else {
             keyStr = "minecraft:" + lowered;
         }
-
         NamespacedKey key = NamespacedKey.fromString(keyStr);
         if (key == null) return fallback;
-
         Sound s = Registry.SOUNDS.get(key);
         return (s != null) ? s : fallback;
     }

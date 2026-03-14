@@ -1,17 +1,15 @@
 package me.axebanz.jJK;
 
-public class HexColor {
-    public static String fromHex(String hex) {
-        if (hex == null || hex.isEmpty()) return "";
-        // Strip '#' if present
-        if (hex.startsWith("#")) hex = hex.substring(1);
-        try {
-            int r = Integer.parseInt(hex.substring(0, 2), 16);
-            int g = Integer.parseInt(hex.substring(2, 4), 16);
-            int b = Integer.parseInt(hex.substring(4, 6), 16);
-            return net.md_5.bungee.api.ChatColor.of(new java.awt.Color(r, g, b)).toString();
-        } catch (Exception e) {
-            return "";
-        }
+public final class HexColor {
+    private HexColor() {}
+
+    // Minimal: return a legacy-ish color close to the vibe.
+    public static String legacyFromHex(String hex) {
+        if (hex == null) return "§7";
+        String h = hex.toUpperCase();
+        if (h.contains("8A2BE2")) return "§5"; // purple vibe
+        if (h.contains("00FFFF") || h.contains("00BFFF") || h.contains("1E90FF")) return "§b";
+        if (h.contains("FFD700") || h.contains("FFA500")) return "§6";
+        return "§d";
     }
 }

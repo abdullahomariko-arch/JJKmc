@@ -1,46 +1,64 @@
 package me.axebanz.jJK;
 
 import org.bukkit.Material;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
-public class CursedToolFactory {
-    private static final Map<String, ItemCreator> creators = new HashMap<>();
+public final class CursedToolFactory {
 
-    static {
-        creators.put("split_soul_katana", amount -> createNamed(Material.NETHERITE_SWORD, "§5§lSplit Soul Katana", amount, "§7Cleaves the soul itself."));
-        creators.put("cursed_blade", amount -> createNamed(Material.IRON_SWORD, "§5Cursed Blade", amount, "§7Imbued with cursed energy."));
-        creators.put("straw_doll_hammer", amount -> createNamed(Material.WOODEN_HOE, "§6Straw Doll Hammer", amount, "§7Strike to bind cursed energy."));
-        creators.put("straw_doll_nail", amount -> createNamed(Material.STICK, "§6Straw Doll Nail", amount, "§7Pierce to channel resonance."));
-        creators.put("cursed_body", amount -> CursedBodyItem.create());
-        creators.put("binding_vow_scroll", amount -> createNamed(Material.PAPER, "§5Binding Vow Scroll", amount, "§7A contract of cursed energy."));
-        creators.put("cursed_tool", amount -> createNamed(Material.DIAMOND_SWORD, "§aCursed Tool", amount, "§7A tool of cursed energy."));
-        creators.put("domain_scroll", amount -> createNamed(Material.BOOK, "§5§lDomain Scroll", amount, "§7Opens a domain expansion."));
+    private final JJKCursedToolsPlugin plugin;
+    private final ItemIds ids;
+
+    public CursedToolFactory(JJKCursedToolsPlugin plugin, ItemIds ids) {
+        this.plugin = plugin;
+        this.ids = ids;
     }
 
-    public ItemStack createItem(String id, int amount) {
-        ItemCreator creator = creators.get(id.toLowerCase());
-        if (creator == null) return null;
-        return creator.create(amount);
-    }
-
-    private static ItemStack createNamed(Material mat, String name, int amount, String lore) {
-        ItemStack item = new ItemStack(mat, amount);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(name);
-            meta.setLore(Arrays.asList(lore));
-            item.setItemMeta(meta);
+    public ItemStack create(ToolId tool, int amount) {
+        ConfigurationSection sec = plugin.cfg().c().getConfigurationSection("tools." + tool.id);
+        if (sec == null) {
+            return new ItemStack(Material.STICK, Math.max(1, amount));
         }
-        return item;
+
+        Material mat = Material.matchMaterial(sec.getString("material", "NETHERITE_SWORD"));
+        if (mat == null) mat = Material.NETHERITE_SWORD;
+
+        ItemStack it = new ItemStack(mat, Math.max(1, amount));
+        ItemMeta meta = it.getItemMeta();
+
+        meta.setDisplayName(sec.getString("displayName", tool.id));
+
+        int cmd = sec.getInt("customModelData", 0);
+        if (cmd > 0) meta.setCustomModelData(cmd);
+
+        boolean unbreakable = sec.getBoolean("unbreakable", false);
+        if (unbreakable) {
+            meta.setUnbreakable(true);
+            meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
+        }
+
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Cursed Tool");
+        lore.add("§8ID: §f" + tool.id);
+        meta.setLore(lore);
+
+        meta.getPersistentDataContainer().set(ids.TOOL_ID, PersistentDataType.STRING, tool.id);
+        meta.getPersistentDataContainer().set(ids.TOOL_VERSION, PersistentDataType.INTEGER, 1);
+
+        it.setItemMeta(meta);
+        return it;
     }
 
-    @FunctionalInterface
-    private interface ItemCreator {
-        ItemStack create(int amount);
+    public ToolId identify(ItemStack it) {
+        if (it == null || !it.hasItemMeta()) return null;
+        ItemMeta meta = it.getItemMeta();
+        String id = meta.getPersistentDataContainer().get(ids.TOOL_ID, PersistentDataType.STRING);
+        return ToolId.from(id);
     }
 }

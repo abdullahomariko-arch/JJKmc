@@ -1,44 +1,61 @@
 package me.axebanz.jJK;
 
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.*;
+import org.bukkit.event.entity.PlayerDeathEvent;
 
-public class PlayerLifecycleListener implements Listener {
+import java.util.UUID;
+
+public final class PlayerLifecycleListener implements Listener {
+
     private final JJKCursedToolsPlugin plugin;
-    private final PlayerDataStore dataStore;
-    private final CursedEnergyManager ceManager;
-    private final BossbarUI bossbarUI;
+    private final PlayerDataStore store;
+    private final CursedEnergyManager ce;
+    private final BossbarUI bossbar;
+    private final ActionbarUI actionbar;
 
-    public PlayerLifecycleListener(JJKCursedToolsPlugin plugin, PlayerDataStore dataStore,
-                                   CursedEnergyManager ceManager, BossbarUI bossbarUI) {
+    public PlayerLifecycleListener(JJKCursedToolsPlugin plugin, PlayerDataStore store, CursedEnergyManager ce, BossbarUI bossbar, ActionbarUI actionbar) {
         this.plugin = plugin;
-        this.dataStore = dataStore;
-        this.ceManager = ceManager;
-        this.bossbarUI = bossbarUI;
+        this.store = store;
+        this.ce = ce;
+        this.bossbar = bossbar;
+        this.actionbar = actionbar;
     }
 
     @EventHandler
-    public void onJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        PlayerProfile profile = dataStore.getOrCreate(player.getUniqueId());
-        if (profile.getTechnique() != null) {
-            plugin.techniqueManager().assign(player.getUniqueId(), profile.getTechnique());
+    public void onJoin(PlayerJoinEvent e) {
+        Player p = e.getPlayer();
+        store.load(p.getUniqueId());
+        ce.ensureInitialized(p.getUniqueId());
+        bossbar.attachPlayer(p);
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent e) {
+        Player p = e.getPlayer();
+        actionbar.clear(p.getUniqueId());
+        bossbar.detachPlayer(p);
+        store.save(p.getUniqueId());
+    }
+
+    @EventHandler
+    public void onDeath(PlayerDeathEvent e) {
+        Player p = e.getPlayer();
+        UUID deadUuid = p.getUniqueId();
+
+        plugin.cooldowns().onDeath(deadUuid);
+        DashState.clear(deadUuid);
+
+        // Tell ALL active Rika instances to stop targeting this dead player
+        if (plugin.rika() != null) {
+            for (Player online : plugin.getServer().getOnlinePlayers()) {
+                UUID ownerId = online.getUniqueId();
+                if (plugin.rika().isActive(online)) {
+                    plugin.rika().onTargetDeath(ownerId, deadUuid);
+                }
+            }
         }
-        ceManager.set(player.getUniqueId(), profile.getCursedEnergy());
-        bossbarUI.updateCeBar(player, ceManager.get(player.getUniqueId()), ceManager.getMax());
-    }
-
-    @EventHandler
-    public void onQuit(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-        PlayerProfile profile = dataStore.getOrCreate(player.getUniqueId());
-        profile.setTechnique(plugin.techniqueManager().getAssignedId(player.getUniqueId()));
-        profile.setCursedEnergy(ceManager.get(player.getUniqueId()));
-        dataStore.unload(player.getUniqueId());
-        bossbarUI.removeBar(player);
     }
 }

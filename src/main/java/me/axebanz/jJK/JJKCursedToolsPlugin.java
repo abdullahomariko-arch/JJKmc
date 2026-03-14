@@ -1,164 +1,267 @@
 package me.axebanz.jJK;
 
+import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 
-/**
- * Main plugin class for JJKmc.
- */
-public class JJKCursedToolsPlugin extends JavaPlugin {
+public final class JJKCursedToolsPlugin extends JavaPlugin {
+
+    private static JJKCursedToolsPlugin instance;
 
     private ConfigManager configManager;
+    private PlayerDataStore playerDataStore;
+
     private TechniqueRegistry techniqueRegistry;
     private TechniqueManager techniqueManager;
-    private CursedEnergyManager ceManager;
-    private CooldownManager cooldownManager;
-    private PlayerDataStore playerDataStore;
-    private BossbarUI bossbarUI;
-    private ActionbarUI actionbarUI;
 
-    // Technique managers
-    private ProjectionManager projectionManager;
-    private ProjectionFreezeHandler projectionFreezeHandler;
-    private CreationManager creationManager;
-    private IdleDeathGambleManager idleDeathGambleManager;
-    private BoogieWoogieManager boogieWoogieManager;
-    private CursedSpeechManager cursedSpeechManager;
-    private StrawDollManager strawDollManager;
-    private CopyManager copyManager;
-    private SeanceManager seanceManager;
-    private RikaManager rikaManager;
-    private DomainManager domainManagerInstance;
-    private WheelTierManager wheelTierManager;
-    private NullifyManager nullifyManager;
+    private CursedEnergyManager cursedEnergyManager;
+    private CooldownManager cooldownManager;
     private RegenLockManager regenLockManager;
-    private AbilityService abilityService;
+    private NullifyManager nullifyManager;
+
+    private ItemIds itemIds;
     private CursedToolFactory cursedToolFactory;
+
+    private ActionbarUI actionbarUI;
+    private BossbarUI bossbarUI;
+
+    private AbilityService abilityService;
+
+    private CommandRouter commandRouter;
+
+    // ===== Divine Wheel =====
+    private WheelUI wheelUI;
+    private PhenomenonDetector phenomenonDetector;
+    private WheelTierManager wheelTierManager;
+    private WheelCombatHandler wheelCombatHandler;
+    private WheelStateSerializer wheelStateSerializer;
+
+    // ===== Creation Technique =====
+    private CreationManager creationManager;
+
+    // ===== Cursed Speech =====
+    private CursedSpeechManager cursedSpeechManager;
+
+    // ===== Boogie Woogie =====
+    private BoogieWoogieManager boogieWoogieManager;
+
+    // ===== Playful Cloud =====
     private PlayfulCloudManager playfulCloudManager;
+
+    // ===== Copy Technique =====
+    private GlobalDataStore globalDataStore;
+    private CopyManager copyManager;
+    private RikaManager rikaManager;
+    private CopyLifecycleListener copyLifecycleListener;
+    private RikaStorageGUI rikaStorageGUI;
+    private CursedBodyItem cursedBodyItem;
+    private CopyListener copyListener;
+    private CopyCTService copyCTService;
+
+    // ===== Domain Expansion =====
+    private DomainManager domainManager;
+
+    // ===== Idle Death Gamble =====
+    private IdleDeathGambleManager idleDeathGambleManager;
+    private IdleDeathGambleListener idleDeathGambleListener;
+
+    // ===== Projection Sorcery =====
+    private BetterModelBridge betterModelBridge;
+    private ProjectionVisuals projectionVisuals;
+    private ProjectionFreezeHandler projectionFreezeHandler;
+    private ProjectionManager projectionManager;
+    private ProjectionListener projectionListener;
+
+    // ===== Séance =====
+    private SeanceManager seanceManager;
+
+    // ===== Straw Doll =====
+    private StrawDollManager strawDollManager;
+
+    // ===== Ten Shadows =====
+    private TenShadowsManager tenShadowsManager;
+
+    public static JJKCursedToolsPlugin get() {
+        return instance;
+    }
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
+        instance = this;
 
-        // Core managers
-        configManager = new ConfigManager(this);
-        techniqueRegistry = new TechniqueRegistry();
-        techniqueManager = new TechniqueManager(techniqueRegistry);
-        ceManager = new CursedEnergyManager(configManager);
-        cooldownManager = new CooldownManager();
-        playerDataStore = new PlayerDataStore(this);
-        bossbarUI = new BossbarUI(this);
-        actionbarUI = new ActionbarUI(this);
-        nullifyManager = new NullifyManager();
-        regenLockManager = new RegenLockManager();
-        abilityService = new AbilityService(this);
-        cursedToolFactory = new CursedToolFactory();
-        rikaManager = new RikaManager(this);
-        playfulCloudManager = new PlayfulCloudManager(this);
+        this.configManager = new ConfigManager(this);
+        configManager.load();
 
-        // Domain
-        domainManagerInstance = new DomainManager(this);
+        this.playerDataStore = new PlayerDataStore(this);
 
-        // Technique-specific managers
-        projectionFreezeHandler = new ProjectionFreezeHandler(this);
-        projectionManager = new ProjectionManager(this, projectionFreezeHandler, cooldownManager);
-        creationManager = new CreationManager(this);
-        idleDeathGambleManager = new IdleDeathGambleManager(this, cooldownManager, domainManagerInstance);
-        boogieWoogieManager = new BoogieWoogieManager(this, cooldownManager);
-        cursedSpeechManager = new CursedSpeechManager(this, cooldownManager);
-        strawDollManager = new StrawDollManager(this, cooldownManager);
-        copyManager = new CopyManager(this);
-        seanceManager = new SeanceManager(this);
-        wheelTierManager = new WheelTierManager(this);
+        this.techniqueRegistry = new TechniqueRegistry();
+        registerTechniques();
+        this.techniqueManager = new TechniqueManager(this, techniqueRegistry, playerDataStore);
 
-        // Register techniques
-        techniqueRegistry.register(new ProjectionTechnique(this, projectionManager));
-        techniqueRegistry.register(new CreationTechnique(this, creationManager));
-        techniqueRegistry.register(new IdleDeathGambleTechnique(this, idleDeathGambleManager));
-        techniqueRegistry.register(new BoogieWoogieTechnique(this, boogieWoogieManager));
-        techniqueRegistry.register(new CursedSpeechTechnique(this, cursedSpeechManager));
-        techniqueRegistry.register(new StrawDollTechnique(this, strawDollManager));
-        techniqueRegistry.register(new CopyTechnique(this, copyManager));
-        techniqueRegistry.register(new SeanceTechnique(this, seanceManager));
-        techniqueRegistry.register(new GravityTechnique(this));
+        this.cooldownManager = new CooldownManager(this, playerDataStore);
+        this.regenLockManager = new RegenLockManager(this, playerDataStore);
+        this.nullifyManager = new NullifyManager(this, techniqueManager, playerDataStore);
 
-        // Register listeners
-        getServer().getPluginManager().registerEvents(
-                new PlayerLifecycleListener(this, playerDataStore, ceManager, bossbarUI), this);
-        getServer().getPluginManager().registerEvents(
-                new ProjectionListener(this, projectionManager), this);
-        getServer().getPluginManager().registerEvents(
-                new DomainListener(this, domainManagerInstance), this);
-        getServer().getPluginManager().registerEvents(
-                new CopyListener(this, copyManager), this);
-        getServer().getPluginManager().registerEvents(
-                new CopyLifecycleListener(this, copyManager), this);
-        getServer().getPluginManager().registerEvents(
-                new CursedSpeechListener(this, cursedSpeechManager), this);
-        getServer().getPluginManager().registerEvents(
-                new IdleDeathGambleListener(this, idleDeathGambleManager), this);
-        getServer().getPluginManager().registerEvents(
-                new StrawDollListener(this, strawDollManager), this);
-        getServer().getPluginManager().registerEvents(
-                new WheelDamageListener(this, wheelTierManager), this);
-        getServer().getPluginManager().registerEvents(
-                new WheelCombatHandler(this), this);
-        getServer().getPluginManager().registerEvents(
-                new CombatListener(this, abilityService), this);
-        getServer().getPluginManager().registerEvents(
-                new ToolUseListener(this), this);
+        this.cursedEnergyManager = new CursedEnergyManager(this, playerDataStore);
 
-        SeanceListener seanceListener = new SeanceListener(this, seanceManager, playerDataStore);
-        getServer().getPluginManager().registerEvents(seanceListener, this);
+        this.itemIds = new ItemIds(this);
+        this.cursedToolFactory = new CursedToolFactory(this, itemIds);
 
-        // Register commands
-        registerCommands();
+        this.actionbarUI = new ActionbarUI(this);
+        this.bossbarUI = new BossbarUI(this);
 
-        // CE regen task
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (org.bukkit.entity.Player p : getServer().getOnlinePlayers()) {
-                    if (!regenLockManager.isRegenLocked(p.getUniqueId())) {
-                        ceManager.regen(p.getUniqueId());
-                        bossbarUI.updateCeBar(p, ceManager.get(p.getUniqueId()), ceManager.getMax());
-                    }
-                }
-            }
-        }.runTaskTimer(this, 0L, configManager.ceRegenInterval());
+        this.abilityService = new AbilityService(
+                this, configManager, techniqueManager, cursedEnergyManager,
+                cooldownManager, regenLockManager, nullifyManager,
+                cursedToolFactory, actionbarUI, bossbarUI
+        );
 
-        // Séance tick task
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                seanceManager.tickIncantations();
-            }
-        }.runTaskTimer(this, 0L, 1L);
+        // ===== Divine Wheel =====
+        this.wheelUI = new WheelUI(this);
+        this.phenomenonDetector = new PhenomenonDetector(this);
+        this.wheelTierManager = new WheelTierManager(this);
+        this.wheelStateSerializer = new WheelStateSerializer(this);
+        this.wheelCombatHandler = new WheelCombatHandler(this, phenomenonDetector, wheelTierManager, wheelUI);
 
-        // Initialize API (api is the class me.axebanz.jJK.api — same package, no import needed)
-        api.init(this);
+        // ===== Creation Technique =====
+        this.creationManager = new CreationManager(this);
 
-        getLogger().info("JJKmc enabled successfully.");
-    }
+        // ===== Cursed Speech =====
+        this.cursedSpeechManager = new CursedSpeechManager(this);
 
-    private void registerCommands() {
-        // commands is the class me.axebanz.jJK.commands — same package, no import needed.
-        // /projection - Bug Fix #3 checks inside command
-        commands.registerIfPresent(this, "projection",
-                new CmdProjection(this, projectionManager),
-                new CmdProjection(this, projectionManager));
+        // ===== Boogie Woogie =====
+        this.boogieWoogieManager = new BoogieWoogieManager(this);
 
-        // /creation - Bug Fix #3
-        commands.registerIfPresent(this, "creation",
-                new CmdCreation(this, creationManager),
-                new CmdCreation(this, creationManager));
+        // ===== Playful Cloud =====
+        this.playfulCloudManager = new PlayfulCloudManager(this);
 
-        // /idledeathgamble - Bug Fix #3
-        commands.registerIfPresent(this, "idledeathgamble",
-                new CmdIdleDeathGamble(this, idleDeathGambleManager),
-                new CmdIdleDeathGamble(this, idleDeathGambleManager));
+        // ===== Copy Technique =====
+        this.globalDataStore = new GlobalDataStore(this);
+        this.copyManager = new CopyManager(this);
+        this.rikaManager = new RikaManager(this);
+        this.copyLifecycleListener = new CopyLifecycleListener(this);
+        this.rikaStorageGUI = new RikaStorageGUI(this);
+        this.cursedBodyItem = new CursedBodyItem(this);
+        this.copyCTService = new CopyCTService(this);
+        this.copyListener = new CopyListener(this, rikaManager, rikaStorageGUI, cursedBodyItem);
 
-        // /strawdoll - Bug Fix #8: new command
+        // ===== Projection Sorcery =====
+        this.betterModelBridge = new BetterModelBridge(this);
+        this.projectionVisuals = new ProjectionVisuals(this);
+        this.projectionFreezeHandler = new ProjectionFreezeHandler(this, betterModelBridge, projectionVisuals);
+        this.projectionManager = new ProjectionManager(this, projectionVisuals, projectionFreezeHandler);
+        this.projectionListener = new ProjectionListener(this, projectionManager);
+
+        // ===== Domain Expansion =====
+        this.domainManager = new DomainManager(this);
+
+        // ===== Idle Death Gamble =====
+        this.idleDeathGambleManager = new IdleDeathGambleManager(this);
+        this.idleDeathGambleListener = new IdleDeathGambleListener(this, idleDeathGambleManager);
+
+        // ===== Séance =====
+        this.seanceManager = new SeanceManager(this);
+
+        // ===== Straw Doll =====
+        this.strawDollManager = new StrawDollManager(this);
+
+        // ===== Ten Shadows =====
+        this.tenShadowsManager = new TenShadowsManager(this);
+
+        // ===== Listeners =====
+        Bukkit.getPluginManager().registerEvents(new PlayerLifecycleListener(this, playerDataStore, cursedEnergyManager, bossbarUI, actionbarUI), this);
+        Bukkit.getPluginManager().registerEvents(new ToolUseListener(this, abilityService, cursedToolFactory), this);
+        Bukkit.getPluginManager().registerEvents(new CombatListener(this, abilityService, cursedToolFactory, regenLockManager, nullifyManager, wheelCombatHandler), this);
+
+        Bukkit.getPluginManager().registerEvents(copyLifecycleListener, this);
+        Bukkit.getPluginManager().registerEvents(rikaStorageGUI, this);
+        Bukkit.getPluginManager().registerEvents(copyListener, this);
+
+        Bukkit.getPluginManager().registerEvents(projectionListener, this);
+        Bukkit.getPluginManager().registerEvents(new DomainListener(this), this);
+
+        Bukkit.getPluginManager().registerEvents(new WheelDamageListener(wheelCombatHandler), this);
+        Bukkit.getPluginManager().registerEvents(new CursedSpeechListener(this, cursedSpeechManager), this);
+        Bukkit.getPluginManager().registerEvents(idleDeathGambleListener, this);
+        Bukkit.getPluginManager().registerEvents(new SeanceListener(this, seanceManager), this);
+        Bukkit.getPluginManager().registerEvents(new StrawDollListener(this, strawDollManager), this);
+
+        // Ten Shadows listener
+        Bukkit.getPluginManager().registerEvents(new TenShadowsListener(this, tenShadowsManager), this);
+        // Ten Shadows scroll wheel selection
+        Bukkit.getPluginManager().registerEvents(new TenShadowsScrollListener(this, tenShadowsManager), this);
+
+        // ===== Commands =====
+        this.commandRouter = new CommandRouter(this);
+        commandRouter.registerDefaults();
+        if (getCommand("jjk") != null) {
+            getCommand("jjk").setExecutor(commandRouter);
+            getCommand("jjk").setTabCompleter(commandRouter);
+        }
+
+        CmdWheel wheelCmd = new CmdWheel(this, wheelTierManager, wheelUI);
+        if (getCommand("wheel") != null) {
+            getCommand("wheel").setExecutor(wheelCmd);
+            getCommand("wheel").setTabCompleter(wheelCmd);
+        }
+
+        CmdCreation creationCmd = new CmdCreation(this, creationManager);
+        if (getCommand("creation") != null) {
+            getCommand("creation").setExecutor(creationCmd);
+            getCommand("creation").setTabCompleter(creationCmd);
+        }
+
+        if (getCommand("cursedspeach") != null) {
+            CmdCursedSpeech csCmd = new CmdCursedSpeech(this, cursedSpeechManager);
+            getCommand("cursedspeach").setExecutor(csCmd);
+            getCommand("cursedspeach").setTabCompleter(csCmd);
+        }
+
+        if (getCommand("boogiewoogie") != null) {
+            CmdBoogieWoogie bwCmd = new CmdBoogieWoogie(this, boogieWoogieManager);
+            getCommand("boogiewoogie").setExecutor(bwCmd);
+            getCommand("boogiewoogie").setTabCompleter(bwCmd);
+        }
+
+        if (getCommand("copy") != null) {
+            CmdCopy copyCmd = new CmdCopy(this, rikaManager, copyCTService);
+            getCommand("copy").setExecutor(copyCmd);
+            getCommand("copy").setTabCompleter(copyCmd);
+        } else {
+            getLogger().warning("Command /copy is missing from plugin.yml");
+        }
+
+        if (getCommand("projection") != null) {
+            CmdProjection projCmd = new CmdProjection(this);
+            getCommand("projection").setExecutor(projCmd);
+            getCommand("projection").setTabCompleter(projCmd);
+        } else {
+            getLogger().warning("Command /projection is missing from plugin.yml");
+        }
+
+        if (getCommand("domain") != null) {
+            CmdDomain domainCmd = new CmdDomain(this);
+            getCommand("domain").setExecutor(domainCmd);
+            getCommand("domain").setTabCompleter(domainCmd);
+        } else {
+            getLogger().warning("Command /domain is missing from plugin.yml");
+        }
+
+        if (getCommand("idg") != null) {
+            CmdIdleDeathGamble idgCmd = new CmdIdleDeathGamble(this);
+            getCommand("idg").setExecutor(idgCmd);
+            getCommand("idg").setTabCompleter(idgCmd);
+        } else {
+            getLogger().warning("Command /idg is missing from plugin.yml");
+        }
+
+        if (getCommand("seance") != null) {
+            CmdSeance seanceCmd = new CmdSeance(this, seanceManager);
+            getCommand("seance").setExecutor(seanceCmd);
+            getCommand("seance").setTabCompleter(seanceCmd);
+        } else {
+            getLogger().warning("Command /seance is missing from plugin.yml");
+        }
+
         if (getCommand("strawdoll") != null) {
             CmdStrawDoll sdCmd = new CmdStrawDoll(this, strawDollManager);
             getCommand("strawdoll").setExecutor(sdCmd);
@@ -167,94 +270,108 @@ public class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /strawdoll is missing from plugin.yml");
         }
 
-        // /domain
-        commands.registerIfPresent(this, "domain",
-                new CmdDomain(this, domainManagerInstance),
-                new CmdDomain(this, domainManagerInstance));
+        // Ten Shadows command
+        if (getCommand("tenshadows") != null) {
+            CmdTenShadows tsCmd = new CmdTenShadows(this, tenShadowsManager);
+            getCommand("tenshadows").setExecutor(tsCmd);
+            getCommand("tenshadows").setTabCompleter(tsCmd);
+        } else {
+            getLogger().warning("Command /tenshadows is missing from plugin.yml");
+        }
 
-        // /seance
-        commands.registerIfPresent(this, "seance",
-                new CmdSeance(this, seanceManager),
-                new CmdSeance(this, seanceManager));
+        actionbarUI.start();
+        bossbarUI.start();
+        cursedEnergyManager.startRegenTask();
 
-        // /boogiewoogie
-        commands.registerIfPresent(this, "boogiewoogie",
-                new CmdBoogieWoogie(this, boogieWoogieManager),
-                new CmdBoogieWoogie(this, boogieWoogieManager));
+        rikaManager.start();
+        copyLifecycleListener.start();
+        projectionManager.start();
+        tenShadowsManager.start();
 
-        // /cursedspeech
-        commands.registerIfPresent(this, "cursedspeech",
-                new CmdCursedSpeech(this, cursedSpeechManager),
-                new CmdCursedSpeech(this, cursedSpeechManager));
+        Bukkit.getOnlinePlayers().forEach(p -> {
+            playerDataStore.load(p.getUniqueId());
+            cursedEnergyManager.ensureInitialized(p.getUniqueId());
+            bossbarUI.attachPlayer(p);
+        });
 
-        // /copy
-        commands.registerIfPresent(this, "copy",
-                new CmdCopy(this, copyManager),
-                new CmdCopy(this, copyManager));
-
-        // /technique
-        commands.registerIfPresent(this, "technique",
-                new CmdTechnique(this, techniqueRegistry, techniqueManager),
-                new CmdTechnique(this, techniqueRegistry, techniqueManager));
-
-        // /jjkgive - Bug Fix #10
-        commands.registerIfPresent(this, "jjkgive",
-                new CmdGive(this, cursedToolFactory),
-                new CmdGive(this, cursedToolFactory));
-
-        // /permadeath
-        commands.registerIfPresent(this, "permadeath",
-                new CmdPermadeath(this, playerDataStore),
-                new CmdPermadeath(this, playerDataStore));
-
-        // /setwaitingroom
-        commands.registerIfPresent(this, "setwaitingroom",
-                new CmdSetWaitingRoom(this),
-                new CmdSetWaitingRoom(this));
-
-        // /wheel
-        commands.registerIfPresent(this, "wheel",
-                new CmdWheel(this, wheelTierManager),
-                new CmdWheel(this, wheelTierManager));
-
-        // /status
-        commands.registerIfPresent(this, "status",
-                new CmdStatus(this, ceManager),
-                new CmdStatus(this, ceManager));
-
-        // /removebindingvow
-        commands.registerIfPresent(this, "removebindingvow",
-                new CmdRemoveBindingVow(this, strawDollManager),
-                new CmdRemoveBindingVow(this, strawDollManager));
-
-        // /jjk (help)
-        commands.registerIfPresent(this, "jjk",
-                new CmdHelp(this),
-                new CmdHelp(this));
+        getLogger().info("JJKCursedTools enabled with Copy + Rika + Ten Shadows.");
     }
 
     @Override
     public void onDisable() {
-        bossbarUI.hideAll();
-        for (org.bukkit.entity.Player p : getServer().getOnlinePlayers()) {
-            playerDataStore.unload(p.getUniqueId());
-        }
-        getLogger().info("JJKmc disabled.");
+        Bukkit.getOnlinePlayers().forEach(p -> {
+            bossbarUI.detachPlayer(p);
+            actionbarUI.clear(p.getUniqueId());
+            playerDataStore.save(p.getUniqueId());
+        });
+
+        getLogger().info("JJKCursedTools disabled.");
     }
 
-    // Getters
     public ConfigManager cfg() { return configManager; }
+    public PlayerDataStore data() { return playerDataStore; }
+
+    public TechniqueRegistry techniques() { return techniqueRegistry; }
     public TechniqueManager techniqueManager() { return techniqueManager; }
-    public TechniqueRegistry techniqueRegistry() { return techniqueRegistry; }
-    public CursedEnergyManager ceManager() { return ceManager; }
-    public CooldownManager cooldownManager() { return cooldownManager; }
-    public PlayerDataStore playerDataStore() { return playerDataStore; }
+
+    public CursedEnergyManager ce() { return cursedEnergyManager; }
+    public CooldownManager cooldowns() { return cooldownManager; }
+    public RegenLockManager regenLock() { return regenLockManager; }
+    public NullifyManager nullify() { return nullifyManager; }
+
+    public ItemIds itemIds() { return itemIds; }
+    public CursedToolFactory tools() { return cursedToolFactory; }
+
+    public ActionbarUI actionbarUI() { return actionbarUI; }
     public BossbarUI bossbarUI() { return bossbarUI; }
-    public ProjectionManager projectionManager() { return projectionManager; }
-    public DomainManager domainManager() { return domainManagerInstance; }
-    public SeanceManager seanceManager() { return seanceManager; }
-    public StrawDollManager strawDollManager() { return strawDollManager; }
-    public NullifyManager nullifyManager() { return nullifyManager; }
-    public RegenLockManager regenLockManager() { return regenLockManager; }
+
     public AbilityService abilityService() { return abilityService; }
+    public CommandRouter router() { return commandRouter; }
+
+    public WheelTierManager wheelTierManager() { return wheelTierManager; }
+    public WheelUI wheelUI() { return wheelUI; }
+
+    public CreationManager creationManager() { return creationManager; }
+    public CursedSpeechManager cursedSpeech() { return cursedSpeechManager; }
+    public BoogieWoogieManager boogieWoogie() { return boogieWoogieManager; }
+    public PlayfulCloudManager playfulCloud() { return playfulCloudManager; }
+
+    public GlobalDataStore global() { return globalDataStore; }
+    public CopyManager copy() { return copyManager; }
+    public RikaManager rika() { return rikaManager; }
+    public RikaStorageGUI rikaStorage() { return rikaStorageGUI; }
+    public CursedBodyItem cursedBody() { return cursedBodyItem; }
+
+    public DomainManager domainManager() { return domainManager; }
+    public TechniqueRegistry techniqueRegistry() { return techniqueRegistry; }
+
+    public IdleDeathGambleManager idgManager() { return idleDeathGambleManager; }
+
+    public SeanceManager seanceManager() { return seanceManager; }
+
+    public StrawDollManager strawDollManager() { return strawDollManager; }
+
+    public ProjectionManager projectionManager() { return projectionManager; }
+    public BetterModelBridge betterModelBridge() { return betterModelBridge; }
+
+    public TenShadowsManager tenShadows() { return tenShadowsManager; }
+
+    public void reloadAll() {
+        configManager.load();
+        if (globalDataStore != null) globalDataStore.reload();
+        Bukkit.getOnlinePlayers().forEach(p -> bossbarUI.attachPlayer(p));
+    }
+
+    private void registerTechniques() {
+        techniqueRegistry.register(new GravityTechnique(this));
+        techniqueRegistry.register(new CreationTechnique(this));
+        techniqueRegistry.register(new CursedSpeechTechnique());
+        techniqueRegistry.register(new BoogieWoogieTechnique());
+        techniqueRegistry.register(new CopyTechnique(this));
+        techniqueRegistry.register(new ProjectionTechnique(this));
+        techniqueRegistry.register(new IdleDeathGambleTechnique(this));
+        techniqueRegistry.register(new SeanceTechnique(this));
+        techniqueRegistry.register(new StrawDollTechnique(this));
+        techniqueRegistry.register(new TenShadowsTechnique(this));
+    }
 }

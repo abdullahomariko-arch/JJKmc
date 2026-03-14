@@ -1,79 +1,68 @@
 package me.axebanz.jJK;
 
 import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.plugin.java.JavaPlugin;
 
-public class ConfigManager {
-    private final JavaPlugin plugin;
-    private FileConfiguration cfg;
+public final class ConfigManager {
 
-    public ConfigManager(JavaPlugin plugin) {
+    private final JJKCursedToolsPlugin plugin;
+    private FileConfiguration config;
+
+    public ConfigManager(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
-        reload();
     }
 
-    public void reload() {
+    public void load() {
+        plugin.saveDefaultConfig();
         plugin.reloadConfig();
-        cfg = plugin.getConfig();
+        this.config = plugin.getConfig();
+    }
+
+    public FileConfiguration c() {
+        return config;
     }
 
     public String prefix() {
-        return cfg.getString("prefix", "§5§l[JJK]§r ");
+        return c().getString("prefix", "§8[§dJJK§8]§r ");
+    }
+
+    public boolean persistCooldownsOnDeath() {
+        return c().getBoolean("data.persistCooldownsOnDeath", true);
     }
 
     public int ceMax() {
-        return cfg.getInt("cursed-energy.max", 100);
+        return Math.max(1, c().getInt("cursedEnergy.max", 10));
     }
 
-    public int ceRegenRate() {
-        return cfg.getInt("cursed-energy.regen-rate", 2);
+    public int ceRegenAmount() {
+        return Math.max(1, c().getInt("cursedEnergy.regen.amountPerTick", 1));
     }
 
-    public int ceRegenInterval() {
-        return cfg.getInt("cursed-energy.regen-interval", 20);
+    public int ceRegenTickSeconds() {
+        return Math.max(1, c().getInt("cursedEnergy.regen.tickSeconds", 4));
     }
 
-    public double projectionDashDistance() {
-        return cfg.getDouble("projection.dash-distance", 10.0);
+    public boolean ceBossbarEnabled() {
+        return c().getBoolean("ui.cursedEnergyBossbar.enabled", true);
     }
 
-    public long projectionDashCooldown() {
-        return cfg.getLong("projection.dash-cooldown", 5000L);
+    public int cooldownBossbarThreshold() {
+        return Math.max(1, c().getInt("ui.cooldownBossbar.longTimerThresholdSeconds", 45));
     }
 
-    public int projectionFreezeDuration() {
-        return cfg.getInt("projection.freeze-duration", 60);
+    public boolean cooldownActionbarEnabled() {
+        return c().getBoolean("ui.cooldownActionbar.enabled", true);
     }
 
-    public long projectionBreakerCooldown() {
-        return cfg.getLong("projection.breaker-cooldown", 8000L);
-    }
-
-    public int domainRadius() {
-        return cfg.getInt("domain.radius", 15);
-    }
-
-    public int domainDuration() {
-        return cfg.getInt("domain.duration", 300);
-    }
-
-    public int domainCeDrain() {
-        return cfg.getInt("domain.ce-drain", 5);
-    }
-
-    public int seanceIncantationTime() {
-        return cfg.getInt("seance.incantation-time", 100);
+    public boolean cooldownPreferShortest() {
+        return c().getBoolean("ui.cooldownActionbar.preferShortest", true);
     }
 
     public boolean permadeathEnabled() {
-        return cfg.getBoolean("permadeath.enabled", true);
+        return c().getBoolean("permadeath.enabled", false);
     }
 
-    public double cursedBodyDropChance() {
-        return cfg.getDouble("cursed-body.drop-chance", 0.05);
-    }
-
-    public FileConfiguration raw() {
-        return cfg;
+    public void setPermadeathEnabled(boolean enabled) {
+        c().set("permadeath.enabled", enabled);
+        plugin.saveConfig();
     }
 }

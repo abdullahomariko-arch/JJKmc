@@ -1,41 +1,50 @@
 package me.axebanz.jJK;
 
-import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.Bukkit;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.util.io.BukkitObjectInputStream;
+import org.bukkit.util.io.BukkitObjectOutputStream;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.UUID;
+import java.io.*;
+import java.util.Base64;
 
-public class RikaStorageSerializer {
-    private final JJKCursedToolsPlugin plugin;
+public final class RikaStorageSerializer {
 
-    public RikaStorageSerializer(JJKCursedToolsPlugin plugin) {
-        this.plugin = plugin;
-    }
+    private RikaStorageSerializer() {}
 
-    public ItemStack[] load(UUID uuid) {
-        File f = new File(plugin.getDataFolder(), "rika/" + uuid + ".yml");
-        if (!f.exists()) return new ItemStack[27];
-        YamlConfiguration cfg = YamlConfiguration.loadConfiguration(f);
-        ItemStack[] items = new ItemStack[27];
-        for (int i = 0; i < 27; i++) {
-            if (cfg.contains("slot." + i)) {
-                items[i] = cfg.getItemStack("slot." + i);
+    public static String toBase64(Inventory inv) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             BukkitObjectOutputStream oos = new BukkitObjectOutputStream(baos)) {
+
+            oos.writeInt(inv.getSize());
+            for (int i = 0; i < inv.getSize(); i++) {
+                oos.writeObject(inv.getItem(i));
             }
+            oos.flush();
+            return Base64.getEncoder().encodeToString(baos.toByteArray());
+        } catch (Exception e) {
+            return null;
         }
-        return items;
     }
 
-    public void save(UUID uuid, ItemStack[] items) {
-        File f = new File(plugin.getDataFolder(), "rika/" + uuid + ".yml");
-        f.getParentFile().mkdirs();
-        YamlConfiguration cfg = new YamlConfiguration();
-        for (int i = 0; i < items.length; i++) {
-            if (items[i] != null) cfg.set("slot." + i, items[i]);
+    public static Inventory fromBase64(String base64, int defaultSize, String title) {
+        if (base64 == null || base64.isBlank()) {
+            return Bukkit.createInventory(null, defaultSize, title);
         }
-        try { cfg.save(f); } catch (IOException e) {
-            plugin.getLogger().warning("Could not save Rika storage for " + uuid);
+
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(Base64.getDecoder().decode(base64));
+             BukkitObjectInputStream ois = new BukkitObjectInputStream(bais)) {
+
+            int size = ois.readInt();
+            Inventory inv = Bukkit.createInventory(null, size, title);
+            for (int i = 0; i < size; i++) {
+                Object obj = ois.readObject();
+                inv.setItem(i, (ItemStack) obj);
+            }
+            return inv;
+        } catch (Exception e) {
+            return Bukkit.createInventory(null, defaultSize, title);
         }
     }
 }

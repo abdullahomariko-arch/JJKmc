@@ -1,106 +1,91 @@
 package me.axebanz.jJK;
 
 import org.bukkit.Bukkit;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 
-/**
- * /jjkgive command handler.
- * Bug Fix #10: Tab complete for args.length == 2 includes straw_doll_hammer,
- * straw_doll_nail, and cursed_body.
- */
-public class CmdGive implements CommandExecutor, TabCompleter {
+public final class CmdGive implements SubCommand {
+
     private final JJKCursedToolsPlugin plugin;
-    private final CursedToolFactory toolFactory;
+    public CmdGive(JJKCursedToolsPlugin plugin) { this.plugin = plugin; }
 
-    public CmdGive(JJKCursedToolsPlugin plugin, CursedToolFactory toolFactory) {
-        this.plugin = plugin;
-        this.toolFactory = toolFactory;
-    }
+    @Override public String name() { return "give"; }
+    @Override public String permission() { return "jjk.give"; }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        if (!sender.hasPermission("jjk.admin")) {
-            sender.sendMessage(plugin.cfg().prefix() + "§cNo permission.");
-            return true;
-        }
-        if (args.length < 2) {
-            sender.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " <player> <item> [amount]");
+    public boolean execute(CommandSender sender, String[] args) {
+        String pref = plugin.cfg().prefix();
+
+        if (args.length < 3) {
+            sender.sendMessage(pref + "§cUsage: /jjk give <player> <tool> [amount]");
             return true;
         }
 
-        Player target = Bukkit.getPlayerExact(args[0]);
+        Player target = Bukkit.getPlayer(args[1]);
         if (target == null) {
-            sender.sendMessage(plugin.cfg().prefix() + "§cPlayer not found: " + args[0]);
+            sender.sendMessage(pref + "§cPlayer not found.");
             return true;
         }
 
-        String itemId = args[1].toLowerCase();
-        int amount = 1;
-        if (args.length >= 3) {
-            try {
-                amount = Integer.parseInt(args[2]);
-            } catch (NumberFormatException e) {
-                sender.sendMessage(plugin.cfg().prefix() + "§cInvalid amount: " + args[2]);
+        ToolId tool = ToolId.from(args[2]);
+        if (tool == null) {
+            if (args[2].equalsIgnoreCase("bindingvow") || args[2].equalsIgnoreCase("binding_vow")) {
+                int amount = 1;
+                if (args.length >= 4) {
+                    try { amount = Math.max(1, Integer.parseInt(args[3])); } catch (Exception ignored) {}
+                }
+                if (plugin.seanceManager() == null) {
+                    sender.sendMessage(pref + "§cSeance system is not loaded.");
+                    return true;
+                }
+                for (int i = 0; i < amount; i++) {
+                    target.getInventory().addItem(plugin.seanceManager().createBindingVowItem());
+                }
+                sender.sendMessage(pref + "§aGiven §fBinding Vow §ax" + amount + " to §f" + target.getName() + "§a.");
                 return true;
             }
-        }
-
-        ItemStack item = toolFactory.createItem(itemId, amount);
-        if (item == null) {
-            sender.sendMessage(plugin.cfg().prefix() + "§cUnknown item: " + itemId);
+            // FIXED: Show all available items including straw doll items
+            sender.sendMessage(pref + "§cInvalid tool. Options: dragon_bone, split_soul_katana, kamutoke, inverted_spear, divine_wheel, playfulcloud, yuta_ring, imbued_cursed_katana, cursed_body, straw_doll_hammer, straw_doll_nail, bindingvow");
             return true;
         }
 
+        int amount = 1;
+        if (args.length >= 4) {
+            try { amount = Math.max(1, Integer.parseInt(args[3])); } catch (Exception ignored) {}
+        }
+
+        ItemStack item = plugin.tools().create(tool, amount);
         target.getInventory().addItem(item);
-        sender.sendMessage(plugin.cfg().prefix() + "§aGave §e" + amount + "x " + itemId + "§a to §e" + target.getName());
+
+        sender.sendMessage(pref + "§aGiven §f" + tool.id + " §ax" + amount + " to §f" + target.getName() + "§a.");
         return true;
     }
 
     @Override
-    public List<String> tab(CommandSender sender, Command cmd, String alias, String[] args) {
-        return onTabComplete(sender, cmd, alias, args);
-    }
-
-    @Override
-    public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (!sender.hasPermission("jjk.admin")) return List.of();
-
+    public List<String> tab(CommandSender sender, String[] args) {
         if (args.length == 1) {
-            String prefix = args[0].toLowerCase();
-            return Bukkit.getOnlinePlayers().stream()
-                    .map(Player::getName)
-                    .filter(name -> name.toLowerCase().startsWith(prefix))
-                    .collect(Collectors.toList());
+            return Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
         }
-
-        // Bug Fix #10: Add straw_doll_hammer, straw_doll_nail, cursed_body to item list
         if (args.length == 2) {
-            List<String> items = Arrays.asList(
+            // FIXED: All items listed including straw doll items
+            return List.of(
+                    "dragon_bone",
                     "split_soul_katana",
-                    "cursed_blade",
+                    "kamutoke",
+                    "inverted_spear",
+                    "divine_wheel",
+                    "playfulcloud",
+                    "yuta_ring",
+                    "imbued_cursed_katana",
+                    "cursed_body",
                     "straw_doll_hammer",
                     "straw_doll_nail",
-                    "cursed_body",
-                    "binding_vow_scroll",
-                    "cursed_tool",
-                    "domain_scroll"
+                    "bindingvow"
             );
-            String prefix = args[1].toLowerCase();
-            return items.stream()
-                    .filter(i -> i.startsWith(prefix))
-                    .collect(Collectors.toList());
         }
-
         return List.of();
     }
 }

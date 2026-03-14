@@ -1,42 +1,49 @@
 package me.axebanz.jJK;
 
-import java.util.HashMap;
-import java.util.Map;
+import org.bukkit.configuration.file.YamlConfiguration;
+
+import java.io.File;
+import java.io.IOException;
 import java.util.UUID;
 
-public class GlobalDataStore {
-    private static GlobalDataStore instance;
-    private final Map<String, Object> data = new HashMap<>();
+/**
+ * Stores server-wide UNIQUE technique owners.
+ * Saved at: plugins/JJKCursedTools/global.yml
+ */
+public final class GlobalDataStore {
 
-    public static GlobalDataStore getInstance() {
-        if (instance == null) instance = new GlobalDataStore();
-        return instance;
+    private final JJKCursedToolsPlugin plugin;
+    private final File file;
+    private YamlConfiguration y;
+
+    public GlobalDataStore(JJKCursedToolsPlugin plugin) {
+        this.plugin = plugin;
+        this.file = new File(plugin.getDataFolder(), "global.yml");
+        reload();
     }
 
-    public void set(String key, Object value) {
-        data.put(key, value);
+    public void reload() {
+        if (!file.getParentFile().exists()) file.getParentFile().mkdirs();
+        this.y = YamlConfiguration.loadConfiguration(file);
     }
 
-    public Object get(String key) {
-        return data.get(key);
+    public void save() {
+        try {
+            y.save(file);
+        } catch (IOException e) {
+            plugin.getLogger().warning("Failed saving global.yml: " + e.getMessage());
+        }
     }
 
-    @SuppressWarnings("unchecked")
-    public <T> T get(String key, Class<T> type) {
-        Object val = data.get(key);
-        if (val == null) return null;
-        return type.cast(val);
+    public UUID copyOwner() {
+        String s = y.getString("unique.copy.owner", null);
+        if (s == null || s.isBlank()) return null;
+        try { return UUID.fromString(s); }
+        catch (Exception ex) { return null; }
     }
 
-    public boolean has(String key) {
-        return data.containsKey(key);
-    }
-
-    public void remove(String key) {
-        data.remove(key);
-    }
-
-    public void clear() {
-        data.clear();
+    public void setCopyOwner(UUID uuid) {
+        y.set("unique.copy.owner", uuid == null ? null : uuid.toString());
+        save();
     }
 }
