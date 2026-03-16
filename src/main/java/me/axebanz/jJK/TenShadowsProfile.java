@@ -33,6 +33,9 @@ public final class TenShadowsProfile {
     public double armorStandHealth = 0;
     public double armorStandMaxHealth = 0;
 
+    /** Shadow storage — persisted as Base64 like Rika's storage */
+    public String shadowStorageBase64 = null;
+
     public TenShadowsProfile(UUID uuid) {
         this.uuid = uuid;
         shikigamiStates.put(ShikigamiType.DIVINE_DOGS.id(), ShikigamiState.UNLOCKED);
@@ -87,6 +90,35 @@ public final class TenShadowsProfile {
             if (s == ShikigamiState.UNLOCKED || s == ShikigamiState.FUSED_UNLOCKED) {
                 list.add(type);
             }
+        }
+        return list;
+    }
+
+    /**
+     * Returns all shikigami that should appear in the scroll wheel —
+     * includes locked ones that require ritual (so player can start one from scroll wheel).
+     */
+    public List<ShikigamiType> getScrollWheelShikigami() {
+        List<ShikigamiType> list = new ArrayList<>();
+        for (ShikigamiType type : ShikigamiType.values()) {
+            ShikigamiState s = getState(type);
+            // Skip fused types that can't be directly summoned via ritual
+            if (type == ShikigamiType.DIVINE_DOG_TOTALITY || type == ShikigamiType.NUE_TOTALITY) {
+                // Only show if unlocked/fused
+                if (s == ShikigamiState.UNLOCKED || s == ShikigamiState.FUSED_UNLOCKED) list.add(type);
+                continue;
+            }
+            // Toad Totality: show if both Toad and Nue are unlocked (active combination)
+            if (type == ShikigamiType.TOAD_TOTALITY) {
+                if (s == ShikigamiState.UNLOCKED || s == ShikigamiState.FUSED_UNLOCKED
+                        || (isUnlocked(ShikigamiType.TOAD) && isUnlocked(ShikigamiType.NUE))) {
+                    list.add(type);
+                }
+                continue;
+            }
+            // Skip DESTROYED
+            if (s == ShikigamiState.DESTROYED) continue;
+            list.add(type);
         }
         return list;
     }

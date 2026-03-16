@@ -5,14 +5,12 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.entity.Player;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Scroll-wheel based shikigami selection UI.
- * Player holds a key (sneak + scroll) to cycle through available shikigami,
- * then releases to summon.
- *
- * Shown via actionbar — uses Nexo glyph tags for icons.
+ * Player holds Shift and scrolls to cycle through ALL shikigami (locked + unlocked).
+ * Locked shikigami show a 🔒 symbol. Unlocked shikigami are highlighted.
+ * When Shift is released, the UI returns to normal actionbar display.
  */
 public final class TenShadowsSelectionUI {
 
@@ -26,31 +24,40 @@ public final class TenShadowsSelectionUI {
 
     /**
      * Render the selection wheel on the actionbar.
+     * Shows all shikigami; locked ones show 🔒 and strikethrough.
      */
     public void showSelectionWheel(Player p, TenShadowsProfile prof) {
-        List<ShikigamiType> available = prof.getSummonableShikigami();
-        if (available.isEmpty()) {
+        List<ShikigamiType> all = prof.getScrollWheelShikigami();
+        if (all.isEmpty()) {
             sendMini(p, "<dark_gray>No shikigami available.</dark_gray>");
             return;
         }
 
-        int index = prof.scrollIndex % available.size();
-        if (index < 0) index += available.size();
+        int index = Math.floorMod(prof.scrollIndex, all.size());
 
         StringBuilder sb = new StringBuilder();
         sb.append("<dark_gray>◀ </dark_gray>");
 
-        for (int i = 0; i < available.size(); i++) {
-            ShikigamiType type = available.get(i);
+        for (int i = 0; i < all.size(); i++) {
+            ShikigamiType type = all.get(i);
+            boolean locked = !prof.isUnlocked(type);
             String clean = stripLegacy(type.displayName());
 
             if (i == index) {
-                sb.append("<white><bold>[ ").append(clean).append(" ]</bold></white>");
+                if (locked) {
+                    sb.append("<red><bold>🔒 <strikethrough>").append(clean).append("</strikethrough></bold></red>");
+                } else {
+                    sb.append("<white><bold>[ ").append(clean).append(" ]</bold></white>");
+                }
             } else {
-                sb.append("<dark_gray>").append(clean).append("</dark_gray>");
+                if (locked) {
+                    sb.append("<dark_red>🔒 <strikethrough>").append(clean).append("</strikethrough></dark_red>");
+                } else {
+                    sb.append("<dark_gray>").append(clean).append("</dark_gray>");
+                }
             }
 
-            if (i < available.size() - 1) {
+            if (i < all.size() - 1) {
                 sb.append("  <dark_gray>|</dark_gray>  ");
             }
         }
@@ -64,15 +71,14 @@ public final class TenShadowsSelectionUI {
      * Get the currently selected shikigami type.
      */
     public ShikigamiType getSelected(TenShadowsProfile prof) {
-        List<ShikigamiType> available = prof.getSummonableShikigami();
-        if (available.isEmpty()) return null;
-        int index = prof.scrollIndex % available.size();
-        if (index < 0) index += available.size();
-        return available.get(index);
+        List<ShikigamiType> all = prof.getScrollWheelShikigami();
+        if (all.isEmpty()) return null;
+        int index = Math.floorMod(prof.scrollIndex, all.size());
+        return all.get(index);
     }
 
     /**
-     * Scroll forward.
+     * Scroll forward (one step).
      */
     public void scrollNext(Player p, TenShadowsProfile prof) {
         prof.scrollIndex++;
@@ -80,7 +86,7 @@ public final class TenShadowsSelectionUI {
     }
 
     /**
-     * Scroll backward.
+     * Scroll backward (one step).
      */
     public void scrollPrev(Player p, TenShadowsProfile prof) {
         prof.scrollIndex--;

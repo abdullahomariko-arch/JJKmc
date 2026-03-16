@@ -115,6 +115,8 @@ public final class PlayerDataStore {
                 }
             }
         }
+
+        prof.shadowStorageBase64 = y.getString("tenShadows.shadowStorageBase64", null);
     }
 
     public void save(UUID uuid) {
@@ -181,6 +183,8 @@ public final class PlayerDataStore {
         for (Map.Entry<String, ShikigamiState> e : prof.shikigamiStates.entrySet()) {
             y.set("tenShadows.shikigamiStates." + e.getKey(), e.getValue().name());
         }
+
+        y.set("tenShadows.shadowStorageBase64", prof.shadowStorageBase64);
 
         try {
             y.save(file);

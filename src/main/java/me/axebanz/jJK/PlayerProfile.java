@@ -57,6 +57,9 @@ public final class PlayerProfile {
     public final Map<String, Long> summonCooldowns = new HashMap<>();
     public final Map<String, ShikigamiState> shikigamiStates = new HashMap<>();
 
+    /** Shadow Storage — serialised inventory base64 (like rikaStorageBase64) */
+    public String shadowStorageBase64 = null;
+
     public PlayerProfile(UUID uuid) {
         this.uuid = uuid;
     }

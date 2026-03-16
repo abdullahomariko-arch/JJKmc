@@ -70,7 +70,7 @@
             <artifactId>ModelEngine</artifactId>
             <version>4.0.9</version>
             <scope>system</scope>
-            <systemPath>C:/Users/pc/Downloads/ModelEngine-4.0.9.jar</systemPath>
+            <systemPath>${project.basedir}/libs/ModelEngine.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>io.github.toxicity188</groupId>

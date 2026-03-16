@@ -79,6 +79,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
     // ===== Ten Shadows =====
     private TenShadowsManager tenShadowsManager;
+    private ShadowStorageGUI shadowStorageGUI;
 
     public static JJKCursedToolsPlugin get() {
         return instance;
@@ -166,6 +167,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
         // ===== Ten Shadows =====
         this.tenShadowsManager = new TenShadowsManager(this);
+        this.shadowStorageGUI = new ShadowStorageGUI(this);
 
         // ===== Listeners =====
         Bukkit.getPluginManager().registerEvents(new PlayerLifecycleListener(this, playerDataStore, cursedEnergyManager, bossbarUI, actionbarUI), this);
@@ -189,6 +191,8 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new TenShadowsListener(this, tenShadowsManager), this);
         // Ten Shadows scroll wheel selection
         Bukkit.getPluginManager().registerEvents(new TenShadowsScrollListener(this, tenShadowsManager), this);
+        // Shadow Storage GUI
+        Bukkit.getPluginManager().registerEvents(shadowStorageGUI, this);
 
         // ===== Commands =====
         this.commandRouter = new CommandRouter(this);
@@ -355,6 +359,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     public BetterModelBridge betterModelBridge() { return betterModelBridge; }
 
     public TenShadowsManager tenShadows() { return tenShadowsManager; }
+    public ShadowStorageGUI shadowStorage() { return shadowStorageGUI; }
 
     public void reloadAll() {
         configManager.load();
