@@ -29,6 +29,18 @@ public final class TenShadowsProfile {
 
     public int scrollIndex = 0;
 
+    /** Timestamp of the last successful summon (ms). Used for dismiss cooldown. */
+    public long lastSummonMs = 0L;
+
+    /** UUID of the entity Toad should pull on next tongue use (set when owner hits someone). */
+    public UUID toadPullTargetUuid = null;
+
+    /** UUID of the entity Great Serpent should target (set when owner hits someone). */
+    public UUID serpentTargetUuid = null;
+
+    /** Timestamp (ms) when the player started hovering on the currently selected shikigami (for Totality selector). */
+    public long scrollHoverSinceMs = 0L;
+
     /** ArmorStand-based shikigami health tracking (for Mahoraga etc.) */
     public double armorStandHealth = 0;
     public double armorStandMaxHealth = 0;
@@ -97,6 +109,7 @@ public final class TenShadowsProfile {
     /**
      * Returns all shikigami that should appear in the scroll wheel —
      * includes locked ones that require ritual (so player can start one from scroll wheel).
+     * Toad Totality does not exist and is never shown.
      */
     public List<ShikigamiType> getScrollWheelShikigami() {
         List<ShikigamiType> list = new ArrayList<>();
@@ -106,14 +119,6 @@ public final class TenShadowsProfile {
             if (type == ShikigamiType.DIVINE_DOG_TOTALITY || type == ShikigamiType.NUE_TOTALITY) {
                 // Only show if unlocked/fused
                 if (s == ShikigamiState.UNLOCKED || s == ShikigamiState.FUSED_UNLOCKED) list.add(type);
-                continue;
-            }
-            // Toad Totality: show if both Toad and Nue are unlocked (active combination)
-            if (type == ShikigamiType.TOAD_TOTALITY) {
-                if (s == ShikigamiState.UNLOCKED || s == ShikigamiState.FUSED_UNLOCKED
-                        || (isUnlocked(ShikigamiType.TOAD) && isUnlocked(ShikigamiType.NUE))) {
-                    list.add(type);
-                }
                 continue;
             }
             // Skip DESTROYED

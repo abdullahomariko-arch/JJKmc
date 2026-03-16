@@ -9,12 +9,17 @@ import java.util.List;
 /**
  * Scroll-wheel based shikigami selection UI.
  * Player holds Shift and scrolls to cycle through ALL shikigami (locked + unlocked).
+ * Shows ONE shikigami name at a time, centered in the action bar.
  * Locked shikigami show a 🔒 symbol. Unlocked shikigami are highlighted.
  * When Shift is released, the UI returns to normal actionbar display.
+ *
+ * Totality selector: if the player hovers on Nue for 3+ seconds AND has Nue Totality unlocked,
+ * "§6Nue: Totality" becomes the secondary display option (pressing summon uses it).
  */
 public final class TenShadowsSelectionUI {
 
     private static final MiniMessage MINI = MiniMessage.miniMessage();
+    private static final long TOTALITY_HOVER_MS = 3000L;
 
     private final JJKCursedToolsPlugin plugin;
 
@@ -24,7 +29,7 @@ public final class TenShadowsSelectionUI {
 
     /**
      * Render the selection wheel on the actionbar.
-     * Shows all shikigami; locked ones show 🔒 and strikethrough.
+     * Shows only the currently selected shikigami name.
      */
     public void showSelectionWheel(Player p, TenShadowsProfile prof) {
         List<ShikigamiType> all = prof.getScrollWheelShikigami();
@@ -34,43 +39,53 @@ public final class TenShadowsSelectionUI {
         }
 
         int index = Math.floorMod(prof.scrollIndex, all.size());
+        ShikigamiType type = all.get(index);
+        boolean locked = !prof.isUnlocked(type);
+        String clean = stripLegacy(type.displayName());
+
+        // Check if Totality selector is active (hovered 3+ seconds on a shikigami that has a Totality)
+        ShikigamiType totality = getTotalityFor(type, prof);
+        boolean totalityActive = totality != null && prof.scrollHoverSinceMs > 0
+                && (System.currentTimeMillis() - prof.scrollHoverSinceMs) >= TOTALITY_HOVER_MS;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("<dark_gray>◀ </dark_gray>");
-
-        for (int i = 0; i < all.size(); i++) {
-            ShikigamiType type = all.get(i);
-            boolean locked = !prof.isUnlocked(type);
-            String clean = stripLegacy(type.displayName());
-
-            if (i == index) {
-                if (locked) {
-                    sb.append("<red><bold>🔒 <strikethrough>").append(clean).append("</strikethrough></bold></red>");
-                } else {
-                    sb.append("<white><bold>[ ").append(clean).append(" ]</bold></white>");
-                }
-            } else {
-                if (locked) {
-                    sb.append("<dark_red>🔒 <strikethrough>").append(clean).append("</strikethrough></dark_red>");
-                } else {
-                    sb.append("<dark_gray>").append(clean).append("</dark_gray>");
-                }
-            }
-
-            if (i < all.size() - 1) {
-                sb.append("  <dark_gray>|</dark_gray>  ");
-            }
+        if (locked) {
+            sb.append("<dark_red>🔒 <strikethrough>").append(clean).append("</strikethrough></dark_red>");
+        } else if (totalityActive) {
+            String totalityName = stripLegacy(totality.displayName());
+            // Show both: base shikigami dimmed, totality highlighted
+            sb.append("<gray>").append(clean).append("</gray>")
+              .append("  <gold><bold>✦ ").append(totalityName).append(" ✦</bold></gold>");
+        } else {
+            sb.append("<white><bold>[ ").append(clean).append(" ]</bold></white>");
         }
-
-        sb.append("<dark_gray> ▶</dark_gray>");
 
         sendMini(p, sb.toString());
     }
 
     /**
      * Get the currently selected shikigami type.
+     * If the Totality selector is active, returns the Totality type instead.
      */
     public ShikigamiType getSelected(TenShadowsProfile prof) {
+        List<ShikigamiType> all = prof.getScrollWheelShikigami();
+        if (all.isEmpty()) return null;
+        int index = Math.floorMod(prof.scrollIndex, all.size());
+        ShikigamiType type = all.get(index);
+
+        // If totality is active, return the totality
+        ShikigamiType totality = getTotalityFor(type, prof);
+        if (totality != null && prof.scrollHoverSinceMs > 0
+                && (System.currentTimeMillis() - prof.scrollHoverSinceMs) >= TOTALITY_HOVER_MS) {
+            return totality;
+        }
+        return type;
+    }
+
+    /**
+     * Get the base (non-totality) selected shikigami.
+     */
+    public ShikigamiType getBaseSelected(TenShadowsProfile prof) {
         List<ShikigamiType> all = prof.getScrollWheelShikigami();
         if (all.isEmpty()) return null;
         int index = Math.floorMod(prof.scrollIndex, all.size());
@@ -78,18 +93,20 @@ public final class TenShadowsSelectionUI {
     }
 
     /**
-     * Scroll forward (one step).
+     * Scroll forward (one step). Resets the totality hover timer.
      */
     public void scrollNext(Player p, TenShadowsProfile prof) {
         prof.scrollIndex++;
+        prof.scrollHoverSinceMs = System.currentTimeMillis();
         showSelectionWheel(p, prof);
     }
 
     /**
-     * Scroll backward (one step).
+     * Scroll backward (one step). Resets the totality hover timer.
      */
     public void scrollPrev(Player p, TenShadowsProfile prof) {
         prof.scrollIndex--;
+        prof.scrollHoverSinceMs = System.currentTimeMillis();
         showSelectionWheel(p, prof);
     }
 
@@ -109,6 +126,17 @@ public final class TenShadowsSelectionUI {
             };
             p.sendMessage("  " + type.displayName() + " §8— " + stateStr);
         }
+    }
+
+    /**
+     * Returns the totality version of a shikigami if it exists and the player has it unlocked.
+     * Only Nue → NUE_TOTALITY is currently supported.
+     */
+    private ShikigamiType getTotalityFor(ShikigamiType base, TenShadowsProfile prof) {
+        if (base == ShikigamiType.NUE && prof.isUnlocked(ShikigamiType.NUE_TOTALITY)) {
+            return ShikigamiType.NUE_TOTALITY;
+        }
+        return null;
     }
 
     private void sendMini(Player p, String miniMessage) {

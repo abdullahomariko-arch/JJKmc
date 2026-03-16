@@ -1,19 +1,18 @@
 package me.axebanz.jJK;
 
 public enum ShikigamiType {
-    DIVINE_DOGS("divine_dogs", "§fDivine Dogs", 40, true, false, "divine_dogs"),
-    DIVINE_DOG_TOTALITY("divine_dog_totality", "§8Divine Dog: Totality", 80, false, false, "divine_dog_totality"),
-    TOAD("toad", "§aToad", 50, true, true, "toad"),
-    TOAD_TOTALITY("toad_totality", "§aToad: Totality", 120, false, false, "toad_totality"),
+    DIVINE_DOGS("divine_dogs", "§fDivine Dogs", 80, true, false, "divine_dogs"),
+    DIVINE_DOG_TOTALITY("divine_dog_totality", "§8Divine Dog: Totality", 160, false, false, "divine_dog_totality"),
+    TOAD("toad", "§aToad", -1, true, true, "toad"),
     RABBIT_ESCAPE("rabbit_escape", "§fRabbit Escape", -1, false, true, null),
-    NUE("nue", "§eNue", 60, true, true, "nue"),
-    GREAT_SERPENT("great_serpent", "§2Great Serpent", 70, true, true, "great_serpent"),
-    MAX_ELEPHANT("max_elephant", "§bMax Elephant", 100, true, true, "max_elephant"),
-    NUE_TOTALITY("nue_totality", "§6Nue: Totality", 240, false, true, "nue_totality"),
-    ROUND_DEER("round_deer", "§aRound Deer", 80, true, true, "round_deer"),
-    PIERCING_OX("piercing_ox", "§4Piercing Ox", 90, true, true, "piercing_ox"),
-    TIGER_FUNERAL("tiger_funeral", "§6Tiger Funeral", 85, true, true, "tiger_funeral"),
-    MAHORAGA("mahoraga", "§5§lEight-Handled Sword Divergent Sila Divine General Mahoraga", 500, false, true, "mahoraga");
+    NUE("nue", "§eNue", -1, true, true, "nue"),
+    GREAT_SERPENT("great_serpent", "§2Great Serpent", 140, true, true, "great_serpent"),
+    MAX_ELEPHANT("max_elephant", "§bMax Elephant", 200, true, true, "max_elephant"),
+    NUE_TOTALITY("nue_totality", "§6Nue: Totality", 480, false, true, "nue_totality"),
+    ROUND_DEER("round_deer", "§aRound Deer", 160, true, true, "round_deer"),
+    PIERCING_OX("piercing_ox", "§4Piercing Ox", 180, true, true, "piercing_ox"),
+    TIGER_FUNERAL("tiger_funeral", "§6Tiger Funeral", 170, true, true, "tiger_funeral"),
+    MAHORAGA("mahoraga", "§5§lEight-Handled Sword Divergent Sila Divine General Mahoraga", 1000, false, true, "mahoraga");
 
     private final String id;
     private final String displayName;
@@ -78,14 +77,14 @@ public enum ShikigamiType {
         return switch (this) {
             case DIVINE_DOG_TOTALITY -> new ShikigamiType[]{DIVINE_DOGS};
             case NUE_TOTALITY -> new ShikigamiType[]{NUE, GREAT_SERPENT};
-            case TOAD_TOTALITY -> new ShikigamiType[]{TOAD, NUE};
             default -> new ShikigamiType[]{};
         };
     }
 
-    /** Whether Toad Totality is available (both Toad and Nue unlocked) */
+    /** @deprecated Toad Totality does not exist */
+    @Deprecated
     public static boolean isToadTotalityAvailable(TenShadowsProfile prof) {
-        return prof.isUnlocked(TOAD) && prof.isUnlocked(NUE);
+        return false;
     }
 
     public static ShikigamiType from(String s) {

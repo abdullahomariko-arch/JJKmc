@@ -79,7 +79,7 @@ public final class TenShadowsScrollListener implements Listener {
 
     /**
      * Sneak + right-click:
-     *   - If a shikigami is summoned → dismiss it
+     *   - If a shikigami is summoned → dismiss it (but not within 3 seconds of summoning)
      *   - If selected shikigami is UNLOCKED → summon it
      *   - If selected shikigami is LOCKED → start a ritual countdown (5...4...3...2...1...)
      */
@@ -96,7 +96,13 @@ public final class TenShadowsScrollListener implements Listener {
         TenShadowsProfile prof = manager.getProfile(p.getUniqueId());
 
         // If already summoned, dismiss on sneak + right click
+        // But add a 3-second cooldown to prevent double-click/event-fire bug
         if (prof.activeSummonId != null) {
+            long timeSinceSummon = System.currentTimeMillis() - prof.lastSummonMs;
+            if (timeSinceSummon < 3000L) {
+                // Still within 3-second window — ignore dismiss to prevent double-click bug
+                return;
+            }
             manager.dismiss(p);
             return;
         }
@@ -117,10 +123,12 @@ public final class TenShadowsScrollListener implements Listener {
         }
 
         // If locked and requires ritual, start ritual countdown
-        if (selected.requiresRitual() && !prof.isDestroyed(selected)) {
-            startRitualCountdown(p, selected);
+        // Use base (non-totality) selected type for ritual initiation
+        ShikigamiType base = ui.getBaseSelected(prof);
+        if (base != null && base.requiresRitual() && !prof.isDestroyed(base)) {
+            startRitualCountdown(p, base);
         } else {
-            p.sendMessage(plugin.cfg().prefix() + "§c" + selected.displayName() + " §ccannot be summoned or started from here.");
+            p.sendMessage(plugin.cfg().prefix() + "§c" + (base != null ? base.displayName() : "Shikigami") + " §ccannot be summoned or started from here.");
         }
     }
 

@@ -58,3 +58,7 @@
       description: "Ten Shadows Technique commands"
       aliases: [ts]
       usage: "/tenshadows <summon|dismiss|store|ritual|list|status>"
+
+    limitless:
+      description: "Limitless Technique commands (placeholder)"
+      usage: "/limitless"
