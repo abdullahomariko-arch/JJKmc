@@ -57,4 +57,4 @@
     tenshadows:
       description: "Ten Shadows Technique commands"
       aliases: [ts]
-      usage: "/tenshadows <summon|dismiss|ritual|list|status>"
+      usage: "/tenshadows <summon|dismiss|store|ritual|list|status>"

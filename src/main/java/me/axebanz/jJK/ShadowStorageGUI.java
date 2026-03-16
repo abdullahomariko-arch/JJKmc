@@ -108,10 +108,11 @@ public final class ShadowStorageGUI implements Listener {
         return 0;
     }
 
+    /** Count the number of occupied inventory slots (not total item amounts). */
     private int countItems(Inventory inv) {
         int count = 0;
         for (ItemStack item : inv.getContents()) {
-            if (item != null && !item.getType().isAir()) count += item.getAmount();
+            if (item != null && !item.getType().isAir()) count++;
         }
         return count;
     }

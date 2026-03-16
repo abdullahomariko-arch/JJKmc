@@ -41,7 +41,7 @@ public final class ShikigamiInstance {
 
     // Shikigami-specific cooldowns (nue lightning, piercing ox charge, etc.)
     private long nueLastLightningMs = 0L;
-    private long toastLastTongueMs = 0L;
+    private long toadLastTongueMs = 0L;
     private long serpentLastGrabMs = 0L;
     private long elephantLastCrushMs = 0L;
     private long oxLastChargeMs = 0L;
@@ -145,8 +145,8 @@ public final class ShikigamiInstance {
     public long nueLastLightningMs() { return nueLastLightningMs; }
     public void setNueLastLightningMs(long ms) { this.nueLastLightningMs = ms; }
 
-    public long toastLastTongueMs() { return toastLastTongueMs; }
-    public void setToastLastTongueMs(long ms) { this.toastLastTongueMs = ms; }
+    public long toadLastTongueMs() { return toadLastTongueMs; }
+    public void setToadLastTongueMs(long ms) { this.toadLastTongueMs = ms; }
 
     public long serpentLastGrabMs() { return serpentLastGrabMs; }
     public void setSerpentLastGrabMs(long ms) { this.serpentLastGrabMs = ms; }

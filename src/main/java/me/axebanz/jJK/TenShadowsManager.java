@@ -51,10 +51,12 @@ public final class TenShadowsManager {
     private static final double MAHORAGA_NORMAL_DAMAGE = 12.0;
     private static final double MAHORAGA_UPPERCUT_DAMAGE = 8.0;
     private static final double MAHORAGA_DOWNSLAM_DAMAGE = 18.0;
-    // Launch velocity Y to reach ~200 blocks up (v^2 = 2*g*h, g~20 m/s^2, h=200 -> v~10)
-    private static final double MAHORAGA_UPPERCUT_LAUNCH_Y = 10.0;
+    // Launch velocity Y to reach ~200 blocks up.
+    // Minecraft uses blocks/tick: gravity ~0.08 blocks/tick^2, apex h = v^2/(2*0.08).
+    // v = 5.7 -> apex ~203 blocks. Delay ~70 ticks to reach apex.
+    private static final double MAHORAGA_UPPERCUT_LAUNCH_Y = 5.7;
     private static final double MAHORAGA_DOWNSLAM_KNOCKBACK = 3.5;
-    private static final long MAHORAGA_DOWNSLAM_DELAY_TICKS = 80;
+    private static final long MAHORAGA_DOWNSLAM_DELAY_TICKS = 70;
     private static final double MAHORAGA_FOLLOW_SPEED = 0.40;
     private static final double MAHORAGA_CHASE_SPEED = 0.60;
     private static final double MAHORAGA_Y_LERP = 0.25;
@@ -88,6 +90,8 @@ public final class TenShadowsManager {
     private static final long ELEPHANT_CRUSH_COOLDOWN_MS = 10000L;
     private static final int ELEPHANT_CRUSH_MIN_HEIGHT = 20;
     private static final int ELEPHANT_CRUSH_MAX_HEIGHT = 50;
+    private static final double ELEPHANT_MIN_DAMAGE = 10.0;
+    private static final double ELEPHANT_MAX_DAMAGE = 40.0;
 
     // Round Deer constants
     private static final double DEER_HEAL_RADIUS = 5.0;
@@ -1209,11 +1213,11 @@ public final class TenShadowsManager {
 
     private void tickToad(Player owner, LivingEntity toad, ShikigamiInstance inst, boolean hostile) {
         long now = System.currentTimeMillis();
-        if (now - inst.toastLastTongueMs() < TOAD_TONGUE_COOLDOWN_MS) return;
+        if (now - inst.toadLastTongueMs() < TOAD_TONGUE_COOLDOWN_MS) return;
 
         if (hostile) {
             // Ritual: grab owner with tongue
-            inst.setToastLastTongueMs(now);
+            inst.setToadLastTongueMs(now);
             double dist = toad.getLocation().distance(owner.getLocation());
             if (dist <= TOAD_TONGUE_RANGE) {
                 // Pull owner toward toad
@@ -1227,7 +1231,7 @@ public final class TenShadowsManager {
             LivingEntity nearby = findNearestHostile(owner, owner.getLocation(), TOAD_TONGUE_RANGE);
             if (nearby != null) {
                 // Offensive: pull target toward owner
-                inst.setToastLastTongueMs(now);
+                inst.setToadLastTongueMs(now);
                 Vector dir = owner.getLocation().toVector().subtract(nearby.getLocation().toVector()).normalize();
                 nearby.setVelocity(dir.multiply(1.5).setY(0.4));
                 spawnTongueParticles(nearby.getLocation(), toad.getLocation());
@@ -1236,7 +1240,7 @@ public final class TenShadowsManager {
                 // Defensive: pull owner toward toad
                 double distToToad = owner.getLocation().distance(toad.getLocation());
                 if (distToToad > 5.0) {
-                    inst.setToastLastTongueMs(now);
+                    inst.setToadLastTongueMs(now);
                     Vector dir = toad.getLocation().toVector().subtract(owner.getLocation().toVector()).normalize();
                     owner.setVelocity(dir.multiply(1.5).setY(0.4));
                     spawnTongueParticles(owner.getLocation(), toad.getLocation());
@@ -1270,7 +1274,7 @@ public final class TenShadowsManager {
         long now = System.currentTimeMillis();
         LivingEntity target = hostile ? owner : findNearestHostile(owner, serpent.getLocation(), 20.0);
         if (target == null) {
-            if (!(hostile)) {
+            if (!hostile) {
                 if (serpent.getLocation().distance(owner.getLocation()) > SHIKIGAMI_FOLLOW_DISTANCE) {
                     if (serpent instanceof Mob mob) mob.getPathfinder().moveTo(owner.getLocation(), 1.0);
                 }
@@ -1362,7 +1366,7 @@ public final class TenShadowsManager {
         // Spawn high above target then fall
         Random rng = new Random();
         int height = ELEPHANT_CRUSH_MIN_HEIGHT + rng.nextInt(ELEPHANT_CRUSH_MAX_HEIGHT - ELEPHANT_CRUSH_MIN_HEIGHT + 1);
-        double damage = OX_MIN_DAMAGE + ((double)height / ELEPHANT_CRUSH_MAX_HEIGHT) * (OX_MAX_DAMAGE - OX_MIN_DAMAGE);
+        double damage = ELEPHANT_MIN_DAMAGE + ((double)height / ELEPHANT_CRUSH_MAX_HEIGHT) * (ELEPHANT_MAX_DAMAGE - ELEPHANT_MIN_DAMAGE);
 
         Location above = target.getLocation().clone().add(
             (rng.nextDouble() - 0.5) * 4, height, (rng.nextDouble() - 0.5) * 4);
@@ -1581,27 +1585,32 @@ public final class TenShadowsManager {
                 mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.ENTITY_IRON_GOLEM_ATTACK, 1.2f, 1.4f);
 
                 final LivingEntity finalTarget = target;
+                // After MAHORAGA_DOWNSLAM_DELAY_TICKS ticks (~apex time), teleport Mahoraga just above target
                 Bukkit.getScheduler().runTaskLater(plugin, () -> {
                     if (!mahoraga.isValid() || !finalTarget.isValid()) return;
-                    // Teleport above target at launch height
-                    Location above = finalTarget.getLocation().clone().add(0, 200, 0);
+
+                    // Teleport Mahoraga to just above target's current position (near apex)
+                    Location targetNow = finalTarget.getLocation().clone();
+                    Location above = targetNow.clone().add(0, 5, 0);
                     above.setYaw(mahoraga.getLocation().getYaw());
                     mahoraga.teleport(above);
 
                     model.playAnimation(mahoraga, "downslam");
+                    // Slam down: deal damage and apply strong downward force to target
+                    finalTarget.damage(MAHORAGA_DOWNSLAM_DAMAGE * adaptMult, damageSource);
+                    finalTarget.setFallDistance(0);
+                    finalTarget.setVelocity(new Vector(0, -MAHORAGA_DOWNSLAM_KNOCKBACK, 0));
+
+                    Location impactLoc = targetNow;
+                    mahoraga.getWorld().spawnParticle(Particle.EXPLOSION, impactLoc, 5, 1.0, 0.2, 1.0, 0);
+                    mahoraga.getWorld().spawnParticle(Particle.CLOUD, impactLoc, 40, 1.5, 0.3, 1.5, 0.05);
+                    mahoraga.getWorld().playSound(impactLoc, Sound.ENTITY_GENERIC_EXPLODE, 1.5f, 0.5f);
+
+                    // Teleport Mahoraga back to ground after the slam
                     Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                        if (!mahoraga.isValid() || !finalTarget.isValid()) return;
-                        finalTarget.damage(MAHORAGA_DOWNSLAM_DAMAGE * adaptMult, damageSource);
-                        finalTarget.setFallDistance(0);
-                        Vector kb = new Vector(0, -MAHORAGA_DOWNSLAM_KNOCKBACK, 0);
-                        finalTarget.setVelocity(kb);
-                        Location impactLoc = finalTarget.getLocation();
-                        mahoraga.teleport(snapToGround(impactLoc.clone()));
-                        mahoraga.getWorld().spawnParticle(Particle.EXPLOSION, impactLoc, 5, 1.0, 0.2, 1.0, 0);
-                        mahoraga.getWorld().spawnParticle(Particle.CLOUD, impactLoc, 40, 1.5, 0.3, 1.5, 0.05);
-                        mahoraga.getWorld().playSound(impactLoc, Sound.ENTITY_GENERIC_EXPLODE, 1.5f, 0.5f);
-                    }, MAHORAGA_DOWNSLAM_DELAY_TICKS);
-                }, 20L); // Give target time to reach apex
+                        if (mahoraga.isValid()) mahoraga.teleport(snapToGround(targetNow.clone()));
+                    }, 20L);
+                }, MAHORAGA_DOWNSLAM_DELAY_TICKS); // ~apex time
                 inst.setAttackCycle(3);
             }
             case 3 -> {
