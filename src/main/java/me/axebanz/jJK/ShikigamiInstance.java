@@ -59,6 +59,13 @@ public final class ShikigamiInstance {
     // Nue glide assist
     private long nueLastGlideMs = 0L;
 
+    // Owner attack target tracking (for Toad tongue / Great Serpent grab)
+    private UUID toadOwnerTarget = null;
+    private UUID serpentOwnerTarget = null;
+
+    // Piercing Ox charge direction (set at summon time)
+    private org.bukkit.util.Vector oxChargeDirection = null;
+
     public ShikigamiInstance(ShikigamiType type, UUID ownerUuid) {
         this.type = type;
         this.ownerUuid = ownerUuid;
@@ -175,4 +182,15 @@ public final class ShikigamiInstance {
 
     public long nueLastGlideMs() { return nueLastGlideMs; }
     public void setNueLastGlideMs(long ms) { this.nueLastGlideMs = ms; }
+
+    // Owner attack targets
+    public UUID toadOwnerTarget() { return toadOwnerTarget; }
+    public void setToadOwnerTarget(UUID uuid) { this.toadOwnerTarget = uuid; }
+
+    public UUID serpentOwnerTarget() { return serpentOwnerTarget; }
+    public void setSerpentOwnerTarget(UUID uuid) { this.serpentOwnerTarget = uuid; }
+
+    // Piercing Ox charge direction
+    public org.bukkit.util.Vector oxChargeDirection() { return oxChargeDirection; }
+    public void setOxChargeDirection(org.bukkit.util.Vector dir) { this.oxChargeDirection = dir; }
 }

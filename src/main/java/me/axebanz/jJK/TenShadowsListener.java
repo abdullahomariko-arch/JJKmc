@@ -8,7 +8,9 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.ItemStack;
@@ -84,6 +86,58 @@ public final class TenShadowsListener implements Listener {
         if (attacker.getUniqueId().equals(ownerUuid)) {
             e.setCancelled(true);
         }
+    }
+
+    /**
+     * When the owner attacks an entity, tell the shikigami manager so Toad/Serpent
+     * can redirect their abilities at that target.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onOwnerAttack(EntityDamageByEntityEvent e) {
+        if (!(e.getDamager() instanceof Player attacker)) return;
+        if (!(e.getEntity() instanceof LivingEntity target)) return;
+        if (manager.isShikigamiEntity(e.getEntity())) return; // Don't track friendly shikigami
+
+        // Only for Ten Shadows players
+        String techId = plugin.techniqueManager().getAssignedId(attacker.getUniqueId());
+        if (!"ten_shadows".equalsIgnoreCase(techId)) return;
+
+        manager.notifyOwnerAttacked(attacker.getUniqueId(), target.getUniqueId());
+    }
+
+    /**
+     * Cancel fall damage for shikigami that should be immune to it.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onShikigamiFallDamage(EntityDamageEvent e) {
+        if (e.getCause() != EntityDamageEvent.DamageCause.FALL) return;
+        Entity entity = e.getEntity();
+        if (!manager.isShikigamiEntity(entity)) return;
+        ShikigamiType type = manager.getShikigamiType(entity);
+        if (type == ShikigamiType.MAX_ELEPHANT
+                || type == ShikigamiType.MAHORAGA
+                || type == ShikigamiType.GREAT_SERPENT
+                || type == ShikigamiType.PIERCING_OX) {
+            e.setCancelled(true);
+        }
+    }
+
+    /**
+     * Right-click on Nue entity → activate glide ability for the owner.
+     */
+    @EventHandler
+    public void onInteractWithNue(PlayerInteractEntityEvent e) {
+        Entity clicked = e.getRightClicked();
+        if (!manager.isShikigamiEntity(clicked)) return;
+        ShikigamiType type = manager.getShikigamiType(clicked);
+        if (type != ShikigamiType.NUE && type != ShikigamiType.NUE_TOTALITY) return;
+
+        UUID ownerUuid = manager.getShikigamiOwner(clicked);
+        Player p = e.getPlayer();
+        if (!p.getUniqueId().equals(ownerUuid)) return;
+
+        e.setCancelled(true);
+        manager.tryNueGlide(p);
     }
 
     /**

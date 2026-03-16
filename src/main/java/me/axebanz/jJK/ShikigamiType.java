@@ -13,7 +13,7 @@ public enum ShikigamiType {
     ROUND_DEER("round_deer", "§aRound Deer", 80, true, true, "round_deer"),
     PIERCING_OX("piercing_ox", "§4Piercing Ox", 90, true, true, "piercing_ox"),
     TIGER_FUNERAL("tiger_funeral", "§6Tiger Funeral", 85, true, true, "tiger_funeral"),
-    MAHORAGA("mahoraga", "§5§lEight-Handled Sword Divergent Sila Divine General Mahoraga", 500, false, true, "mahoraga");
+    MAHORAGA("mahoraga", "§5§lEight-Handled Sword Divergent Sila Divine General Mahoraga", 1000, false, true, "mahoraga");
 
     private final String id;
     private final String displayName;
