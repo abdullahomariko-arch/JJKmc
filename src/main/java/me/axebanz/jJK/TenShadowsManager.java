@@ -37,6 +37,16 @@ public final class TenShadowsManager {
     // Rabbit Escape speed boost tracking
     private final Map<UUID, Boolean> rabbitWallActive = new ConcurrentHashMap<>();
 
+    // 3-second dismiss cooldown to prevent immediate dismiss after summon
+    private final Map<UUID, Long> dismissCooldownUntilMs = new ConcurrentHashMap<>();
+    private static final long DISMISS_COOLDOWN_MS = 3000L;
+
+    // Ritual rabbit swarm tracking (for Rabbit Escape ritual cleanup)
+    private final Map<UUID, List<UUID>> ritualRabbitSwarmsUuids = new ConcurrentHashMap<>();
+
+    // Indestructible respawn cooldown (Toad, Nue)
+    private static final long INDESTRUCTIBLE_RESPAWN_COOLDOWN_MS = 30000L;
+
     private static final long SUMMON_COOLDOWN_SECONDS = 30;
     private static final long RITUAL_COOLDOWN_SECONDS = 120;
     private static final int SUMMON_CE_COST = 3;
@@ -48,13 +58,13 @@ public final class TenShadowsManager {
     // Mahoraga constants
     private static final double MAHORAGA_ATTACK_RANGE = 4.0;
     private static final long MAHORAGA_ATTACK_COOLDOWN_MS = 1500;
-    private static final double MAHORAGA_NORMAL_DAMAGE = 12.0;
-    private static final double MAHORAGA_UPPERCUT_DAMAGE = 8.0;
-    private static final double MAHORAGA_DOWNSLAM_DAMAGE = 18.0;
-    // Launch velocity Y to reach ~200 blocks up.
-    // Minecraft uses blocks/tick: gravity ~0.08 blocks/tick^2, apex h = v^2/(2*0.08).
-    // v = 5.7 -> apex ~203 blocks. Delay ~70 ticks to reach apex.
-    private static final double MAHORAGA_UPPERCUT_LAUNCH_Y = 5.7;
+    private static final double MAHORAGA_NORMAL_DAMAGE = 18.0;
+    private static final double MAHORAGA_UPPERCUT_DAMAGE = 14.0;
+    private static final double MAHORAGA_DOWNSLAM_DAMAGE = 30.0;
+    // Launch velocity Y: ~9.0 gives a large upward arc as requested (problem specifies 8-10)
+    private static final double MAHORAGA_UPPERCUT_LAUNCH_Y = 9.0;
+    // Lateral launch adds X/Z so the target doesn't fly straight up
+    private static final double MAHORAGA_UPPERCUT_LAUNCH_LATERAL = 0.8;
     private static final double MAHORAGA_DOWNSLAM_KNOCKBACK = 3.5;
     private static final long MAHORAGA_DOWNSLAM_DELAY_TICKS = 70;
     private static final double MAHORAGA_FOLLOW_SPEED = 0.40;
@@ -62,6 +72,8 @@ public final class TenShadowsManager {
     private static final double MAHORAGA_Y_LERP = 0.25;
     private static final double MAHORAGA_HARD_LIMIT = 25.0;
     private static final double MAHORAGA_FOLLOW_DISTANCE = 3.5;
+    // Mahoraga health regen on adaptation (% of max HP)
+    private static final double MAHORAGA_ADAPT_REGEN_PCT = 0.10;
 
     // Rabbit Escape
     private static final int RABBIT_SWARM_COUNT = 65;
@@ -69,29 +81,34 @@ public final class TenShadowsManager {
 
     // Divine Dogs
     private static final double DOG_SIDE_OFFSET = 1.5;
+    private static final double DIVINE_DOG_BITE_DAMAGE = 20.0;
 
     // Nue constants
     private static final double NUE_LIGHTNING_RADIUS = 5.0;
     private static final double NUE_TOTALITY_LIGHTNING_RADIUS = 100.0;
-    private static final long NUE_LIGHTNING_COOLDOWN_MS = 8000L;
-    private static final double NUE_WING_DAMAGE = 6.0;
-    private static final double NUE_LIGHTNING_DAMAGE = 10.0;
+    private static final long NUE_LIGHTNING_COOLDOWN_MS = 3000L;
+    private static final double NUE_WING_DAMAGE = 18.0;
+    private static final double NUE_LIGHTNING_DAMAGE = 22.0;
+    private static final long NUE_GLIDE_COOLDOWN_MS = 15000L;
 
     // Toad constants
     private static final long TOAD_TONGUE_COOLDOWN_MS = 3000L;
     private static final double TOAD_TONGUE_RANGE = 20.0;
+    private static final double TOAD_TONGUE_DAMAGE = 8.0;
 
     // Great Serpent constants
     private static final long SERPENT_GRAB_COOLDOWN_MS = 8000L;
     private static final int SERPENT_SHAKE_DURATION_TICKS = 60; // 3 seconds
-    private static final double SERPENT_SHAKE_DAMAGE_PER_TICK = 0.5;
+    private static final double SERPENT_GRAB_INITIAL_DAMAGE = 8.0;
+    private static final double SERPENT_SHAKE_DAMAGE_PER_TICK = 0.34; // ~20 total over 60 ticks
 
     // Max Elephant constants
     private static final long ELEPHANT_CRUSH_COOLDOWN_MS = 10000L;
-    private static final int ELEPHANT_CRUSH_MIN_HEIGHT = 20;
+    private static final int ELEPHANT_CRUSH_MIN_HEIGHT = 30;
     private static final int ELEPHANT_CRUSH_MAX_HEIGHT = 50;
-    private static final double ELEPHANT_MIN_DAMAGE = 10.0;
-    private static final double ELEPHANT_MAX_DAMAGE = 40.0;
+    private static final double ELEPHANT_MIN_DAMAGE = 20.0;
+    private static final double ELEPHANT_MAX_DAMAGE = 45.0;
+    private static final double ELEPHANT_WATER_PUSH_DAMAGE = 12.0;
 
     // Round Deer constants
     private static final double DEER_HEAL_RADIUS = 5.0;
@@ -100,9 +117,10 @@ public final class TenShadowsManager {
     // Piercing Ox constants
     private static final long OX_CHARGE_COOLDOWN_MS = 5000L;
     private static final double OX_CHARGE_SPEED = 1.2;
-    private static final double OX_MIN_DAMAGE = 8.0;
-    private static final double OX_MAX_DAMAGE = 30.0;
-    private static final double OX_MAX_CHARGE_DISTANCE = 30.0;
+    private static final double OX_MIN_DAMAGE = 20.0;
+    private static final double OX_MAX_DAMAGE = 35.0;
+    private static final double OX_MAX_CHARGE_DISTANCE = 50.0;    // Ritual charges 50 blocks
+    private static final double OX_FRIENDLY_MAX_CHARGE_DISTANCE = 100.0;
 
     private int brainTaskId = -1;
 
@@ -181,6 +199,10 @@ public final class TenShadowsManager {
         Location spawnLoc;
         if (type == ShikigamiType.MAHORAGA || type == ShikigamiType.PIERCING_OX) {
             spawnLoc = p.getLocation().clone().add(p.getLocation().getDirection().normalize().multiply(-3));
+        } else if (type == ShikigamiType.TOAD || type == ShikigamiType.TOAD_TOTALITY) {
+            // Toad spawns to the right of the player (1.5 blocks)
+            Vector right = getPerpendicularRight(p);
+            spawnLoc = p.getLocation().clone().add(right.multiply(1.5));
         } else {
             spawnLoc = p.getLocation().clone().add(p.getLocation().getDirection().normalize().multiply(2));
         }
@@ -214,6 +236,15 @@ public final class TenShadowsManager {
         prof.setState(type, ShikigamiState.ACTIVE);
         prof.summonCooldownUntilMs = now + SUMMON_COOLDOWN_SECONDS * 1000L;
 
+        // Set 3-second dismiss cooldown to prevent immediate dismiss on double-click
+        dismissCooldownUntilMs.put(u, now + DISMISS_COOLDOWN_MS);
+
+        // Store charge direction for Piercing Ox at summon time
+        if (type == ShikigamiType.PIERCING_OX) {
+            Vector chargeDir = p.getLocation().getDirection().setY(0).normalize();
+            instance.setOxChargeDirection(chargeDir);
+        }
+
         if (type == ShikigamiType.MAHORAGA) {
             createMahoragaBossBar(p, instance);
         }
@@ -230,6 +261,15 @@ public final class TenShadowsManager {
 
         if (prof.activeSummonId == null) {
             p.sendMessage(prefix + "§cNo shikigami is currently summoned.");
+            return;
+        }
+
+        // Check dismiss cooldown (3 seconds after summon)
+        long now = System.currentTimeMillis();
+        Long cooldownUntil = dismissCooldownUntilMs.get(u);
+        if (cooldownUntil != null && now < cooldownUntil) {
+            long remSecs = (cooldownUntil - now + 999) / 1000;
+            p.sendMessage(prefix + "§cCannot dismiss yet — wait §f" + remSecs + "s§c after summoning.");
             return;
         }
 
@@ -264,6 +304,14 @@ public final class TenShadowsManager {
             for (UUID sid : instance.swarmEntityUuids()) {
                 removeEntity(sid);
             }
+
+            // Remove Speed effect if it was given by Rabbit Escape
+            if (instance.type() == ShikigamiType.RABBIT_ESCAPE) {
+                Player owner = Bukkit.getPlayer(ownerUuid);
+                if (owner != null) {
+                    owner.removePotionEffect(PotionEffectType.SPEED);
+                }
+            }
         }
 
         BossBar bar = mahoragaBossBars.remove(ownerUuid);
@@ -285,6 +333,7 @@ public final class TenShadowsManager {
         mahoragaAttackCycle.remove(ownerUuid);
         mahoragaLastAttackMs.remove(ownerUuid);
         rabbitWallActive.remove(ownerUuid);
+        dismissCooldownUntilMs.remove(ownerUuid);
     }
 
     private void removeEntity(UUID uuid) {
@@ -374,10 +423,10 @@ public final class TenShadowsManager {
     /** Spawn Rabbit Escape as a swarm of 65 rabbits in tiers around the owner */
     private void spawnRabbitSwarm(Player owner, ShikigamiInstance instance, Location baseLoc) {
         // Tier layout: inner ring (8 rabbits), middle ring (16), outer ring (24), top layer (17)
-        // Total: 65 rabbits arranged in concentric rings
+        // Total: 65 rabbits arranged in concentric rings floating at chest/head height
         int[] tierCounts = {8, 16, 24, 17};
         double[] tierRadii = {1.2, 2.0, 2.8, 1.8};
-        double[] tierYOffsets = {0.0, 0.0, 0.0, 0.8};
+        double[] tierYOffsets = {1.0, 1.2, 1.0, 1.8}; // float at body height
         int globalIdx = 0;
 
         for (int tier = 0; tier < tierCounts.length; tier++) {
@@ -388,14 +437,16 @@ public final class TenShadowsManager {
                 double angle = (Math.PI * 2.0) * (i / (double) count);
                 Location rabbitLoc = baseLoc.clone().add(
                     Math.cos(angle) * radius, yOffset, Math.sin(angle) * radius);
-                rabbitLoc = snapToGround(rabbitLoc);
-                rabbitLoc.add(0, yOffset, 0);
 
                 Rabbit rabbit = (Rabbit) owner.getWorld().spawnEntity(rabbitLoc, EntityType.RABBIT);
                 rabbit.setCustomName("§fRabbit Escape");
                 rabbit.setCustomNameVisible(false);
                 rabbit.setInvulnerable(true);
                 rabbit.setSilent(true);
+                // Float in place (protective wall)
+                rabbit.setGravity(false);
+                rabbit.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, Integer.MAX_VALUE, 0, false, false, false));
+                if (rabbit instanceof Mob mob) mob.setAware(false);
 
                 rabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI, PersistentDataType.INTEGER, 1);
                 rabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI_TYPE, PersistentDataType.STRING, ShikigamiType.RABBIT_ESCAPE.id());
@@ -414,7 +465,62 @@ public final class TenShadowsManager {
         owner.sendMessage(plugin.cfg().prefix() + "§fRabbit Escape! §7The swarm of 65 rabbits surrounds and protects you!");
     }
 
-    /** Spawn a normal mob-based shikigami */
+    /**
+     * Spawn the ritual Rabbit Escape swarm: 65 rabbits (64 brown + 1 white target).
+     * All rabbits have Speed II and flee from the player.
+     * Only killing the white rabbit completes the ritual.
+     */
+    private void spawnRitualRabbitSwarm(Player owner, UUID ownerUuid, Location baseLoc) {
+        TenShadowsProfile prof = getProfile(ownerUuid);
+        List<UUID> brownRabbits = new ArrayList<>();
+        Random rng = new Random();
+
+        // Scatter rabbits in a wide area around the spawn location
+        for (int i = 0; i < RABBIT_SWARM_COUNT - 1; i++) {
+            double angle = Math.random() * Math.PI * 2;
+            double dist = 2.0 + Math.random() * 8.0;
+            Location rabbitLoc = baseLoc.clone().add(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+            rabbitLoc = snapToGround(rabbitLoc);
+
+            Rabbit rabbit = (Rabbit) owner.getWorld().spawnEntity(rabbitLoc, EntityType.RABBIT);
+            rabbit.setRabbitType(Rabbit.Type.BROWN);
+            rabbit.setCustomName("§7??");
+            rabbit.setCustomNameVisible(false);
+            rabbit.setSilent(false);
+            rabbit.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1, false, false, false));
+
+            rabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI, PersistentDataType.INTEGER, 1);
+            rabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI_TYPE, PersistentDataType.STRING, ShikigamiType.RABBIT_ESCAPE.id());
+            rabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI_OWNER, PersistentDataType.STRING, ownerUuid.toString());
+
+            brownRabbits.add(rabbit.getUniqueId());
+        }
+
+        // White target rabbit — placed in a random position among the crowd
+        double angle = Math.random() * Math.PI * 2;
+        double dist = 2.0 + Math.random() * 8.0;
+        Location whiteLoc = baseLoc.clone().add(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+        whiteLoc = snapToGround(whiteLoc);
+
+        Rabbit whiteRabbit = (Rabbit) owner.getWorld().spawnEntity(whiteLoc, EntityType.RABBIT);
+        whiteRabbit.setRabbitType(Rabbit.Type.WHITE);
+        whiteRabbit.setCustomName("§f???");
+        whiteRabbit.setCustomNameVisible(false);
+        whiteRabbit.setSilent(false);
+        whiteRabbit.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1, false, false, false));
+
+        whiteRabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI, PersistentDataType.INTEGER, 1);
+        whiteRabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI_TYPE, PersistentDataType.STRING, ShikigamiType.RABBIT_ESCAPE.id());
+        whiteRabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI_OWNER, PersistentDataType.STRING, ownerUuid.toString());
+        whiteRabbit.getPersistentDataContainer().set(KEY_RITUAL_MOB, PersistentDataType.INTEGER, 1);
+
+        // Store white rabbit UUID as the ritual target; brown rabbits as extras to clean up
+        prof.ritualEntityUuid = whiteRabbit.getUniqueId().toString();
+        ritualRabbitSwarmsUuids.put(ownerUuid, brownRabbits);
+
+        owner.sendMessage(plugin.cfg().prefix() + "§fFind and kill the §lWHITE§f rabbit to complete the ritual!");
+        owner.sendTitle("§c§lRITUAL", "§7Find the white rabbit among the 65!", 10, 60, 20);
+    }
     private LivingEntity spawnMobShikigami(Player owner, ShikigamiType type, Location loc, boolean hostile) {
         EntityType entityType = getBaseEntityType(type);
         LivingEntity entity = (LivingEntity) loc.getWorld().spawnEntity(loc, entityType);
@@ -440,6 +546,23 @@ public final class TenShadowsManager {
             golem.setRemoveWhenFarAway(false);
             // Make it passive towards owner; will be controlled by AI tick
             golem.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 0, false, false, false));
+        }
+
+        // Nue (Phantom): give fire resistance so it doesn't burn in sunlight
+        if ((type == ShikigamiType.NUE || type == ShikigamiType.NUE_TOTALITY) && entity instanceof Phantom) {
+            entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 0, false, false, false));
+            entity.setVisualFire(false);
+        }
+
+        // Divine Dogs: increase bite damage
+        if ((type == ShikigamiType.DIVINE_DOGS || type == ShikigamiType.DIVINE_DOG_TOTALITY) && entity instanceof Wolf wolf) {
+            var attackAttr = wolf.getAttribute(Attribute.GENERIC_ATTACK_DAMAGE);
+            if (attackAttr != null) attackAttr.setBaseValue(DIVINE_DOG_BITE_DAMAGE);
+        }
+
+        // Piercing Ox: suppress default Ravager aggro toward players
+        if (type == ShikigamiType.PIERCING_OX && entity instanceof Mob mob && !hostile) {
+            mob.setAware(false);
         }
 
         if (hostile && entity instanceof Mob mob) {
@@ -498,6 +621,29 @@ public final class TenShadowsManager {
         Player owner = Bukkit.getPlayer(ownerUuid);
         String prefix = plugin.cfg().prefix();
 
+        // Indestructible shikigami (Toad, Nue) — go on cooldown and come back
+        if (type == ShikigamiType.TOAD || type == ShikigamiType.TOAD_TOTALITY) {
+            prof.setState(type, ShikigamiState.UNLOCKED);
+            prof.summonCooldownUntilMs = Math.max(prof.summonCooldownUntilMs,
+                System.currentTimeMillis() + INDESTRUCTIBLE_RESPAWN_COOLDOWN_MS);
+            if (owner != null) {
+                owner.sendMessage(prefix + "§a" + type.displayName() + " §7has returned to the shadows. (30s cooldown)");
+            }
+            return;
+        }
+
+        if (type == ShikigamiType.NUE) {
+            // Nue is indestructible; however, if the owner wills it, it can still fuse via the fusion mechanic
+            // For normal death: go on cooldown
+            prof.setState(type, ShikigamiState.UNLOCKED);
+            prof.summonCooldownUntilMs = Math.max(prof.summonCooldownUntilMs,
+                System.currentTimeMillis() + INDESTRUCTIBLE_RESPAWN_COOLDOWN_MS);
+            if (owner != null) {
+                owner.sendMessage(prefix + "§e" + type.displayName() + " §7has returned to the shadows. (30s cooldown)");
+            }
+            return;
+        }
+
         prof.setState(type, ShikigamiState.DESTROYED);
 
         switch (type) {
@@ -507,18 +653,6 @@ public final class TenShadowsManager {
                     owner.sendMessage(prefix + "§8§l✦ §fDivine Dogs §7has been destroyed...");
                     owner.sendMessage(prefix + "§8§l✦ §8Divine Dog: Totality §fhas been unlocked through fusion!");
                     owner.playSound(owner.getLocation(), Sound.ENTITY_WITHER_DEATH, 0.5f, 1.6f);
-                }
-            }
-            case NUE -> {
-                prof.nueDestroyed = true;
-                if (prof.greatSerpentDestroyed) {
-                    prof.setState(ShikigamiType.NUE_TOTALITY, ShikigamiState.FUSED_UNLOCKED);
-                    if (owner != null) {
-                        owner.sendMessage(prefix + "§6§l✦ Nue: Totality §fhas been unlocked through fusion!");
-                        owner.playSound(owner.getLocation(), Sound.ENTITY_WITHER_DEATH, 0.5f, 1.6f);
-                    }
-                } else if (owner != null) {
-                    owner.sendMessage(prefix + "§e" + type.displayName() + " §7has been permanently destroyed.");
                 }
             }
             case GREAT_SERPENT -> {
@@ -603,6 +737,9 @@ public final class TenShadowsManager {
             prof.ritualEntityUuid = instance.entityUuid().toString();
             prof.armorStandHealth = type.maxHealth();
             prof.armorStandMaxHealth = type.maxHealth();
+        } else if (type == ShikigamiType.RABBIT_ESCAPE) {
+            // Special ritual: 65 rabbits — 64 brown distractors + 1 white target
+            spawnRitualRabbitSwarm(p, u, spawnLoc);
         } else {
             // Normal mob ritual
             LivingEntity entity = spawnMobShikigami(p, type, spawnLoc, true);
@@ -627,16 +764,20 @@ public final class TenShadowsManager {
         bossBar.addPlayer(p);
         ritualBossBars.put(u, bossBar);
 
-        p.sendTitle(
-                type == ShikigamiType.MAHORAGA ? "§5§lMAHORAGA" : "§c§lRITUAL",
-                "§7Defeat §f" + type.displayName() + " §7to tame it!",
-                10, 60, 20
-        );
+        if (type != ShikigamiType.RABBIT_ESCAPE) {
+            p.sendTitle(
+                    type == ShikigamiType.MAHORAGA ? "§5§lMAHORAGA" : "§c§lRITUAL",
+                    "§7Defeat §f" + type.displayName() + " §7to tame it!",
+                    10, 60, 20
+            );
+        }
 
         p.getWorld().playSound(p.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.6f);
         spawnRitualParticles(spawnLoc);
 
-        p.sendMessage(prefix + "§c§lThe ritual begins! §7Defeat §f" + type.displayName() + " §7to unlock it!");
+        if (type != ShikigamiType.RABBIT_ESCAPE) {
+            p.sendMessage(prefix + "§c§lThe ritual begins! §7Defeat §f" + type.displayName() + " §7to unlock it!");
+        }
     }
 
     /** Called when a ritual mob dies — either via EntityDeathEvent or ArmorStand damage tracking */
@@ -648,6 +789,14 @@ public final class TenShadowsManager {
         // Clean up ritual entity
         if (prof.ritualEntityUuid != null) {
             removeEntity(parseUuid(prof.ritualEntityUuid));
+        }
+
+        // Clean up ritual rabbit swarm extras (Rabbit Escape ritual)
+        List<UUID> extraRabbits = ritualRabbitSwarmsUuids.remove(ownerUuid);
+        if (extraRabbits != null) {
+            for (UUID rabbitId : extraRabbits) {
+                removeEntity(rabbitId);
+            }
         }
 
         prof.ritualActive = false;
@@ -1083,17 +1232,25 @@ public final class TenShadowsManager {
             if (e == null || !e.isValid()) continue;
             alive++;
 
-            // Form protective wall around owner
+            // Float in a protective sphere/wall around owner at chest/head height
             double angle = (Math.PI * 2.0) * (i / (double) instance.swarmEntityUuids().size());
             double radius = RABBIT_WALL_RADIUS;
-            Location targetLoc = center.clone().add(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-            targetLoc = snapToGround(targetLoc);
+            double yOffset = 0.8 + 0.6 * Math.sin(angle * 2); // slight vertical variation
+            Location targetLoc = center.clone().add(
+                Math.cos(angle) * radius, yOffset, Math.sin(angle) * radius);
 
+            // Teleport if too far from formation
             double dist = e.getLocation().distance(targetLoc);
-            if (dist > 1.5) {
-                if (e instanceof Mob mob) {
-                    mob.getPathfinder().moveTo(targetLoc, 1.8);
+            if (dist > 2.0) {
+                e.teleport(targetLoc);
+            }
+
+            // Keep NoGravity and levitation
+            if (e instanceof LivingEntity le) {
+                if (!le.hasPotionEffect(PotionEffectType.LEVITATION)) {
+                    le.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, Integer.MAX_VALUE, 0, false, false, false));
                 }
+                le.setGravity(false);
             }
         }
 
@@ -1158,6 +1315,13 @@ public final class TenShadowsManager {
 
     private void tickNue(Player owner, LivingEntity nue, ShikigamiInstance inst, boolean hostile) {
         if (!(nue instanceof Mob mob)) return;
+
+        // Keep fire resistance active (Phantoms burn in daylight)
+        if (!nue.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE)) {
+            nue.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 0, false, false, false));
+        }
+        nue.setVisualFire(false);
+
         LivingEntity target = hostile ? owner : findNearestHostile(owner, nue.getLocation(), 25.0);
         if (target == null) {
             if (!hostile) {
@@ -1184,7 +1348,7 @@ public final class TenShadowsManager {
             nue.getWorld().playSound(nue.getLocation(), Sound.ENTITY_PHANTOM_SWOOP, 1.0f, 1.0f);
         }
 
-        // Attack 2: Lightning Strike (8 second cooldown via nueLastLightningMs)
+        // Attack 2: Lightning Strike (3 second cooldown — more frequent)
         if (nowMs - inst.nueLastLightningMs() > NUE_LIGHTNING_COOLDOWN_MS) {
             inst.setNueLastLightningMs(nowMs);
             Location lightningLoc = target.getLocation().clone().add(
@@ -1209,11 +1373,52 @@ public final class TenShadowsManager {
         }
     }
 
+    /**
+     * Try to activate the Nue glide ability for the owner.
+     * Called when owner right-clicks on Nue.
+     * Gives Slow Falling + forward velocity boost, 15s cooldown.
+     */
+    public void tryNueGlide(Player owner) {
+        ShikigamiInstance inst = activeShikigami.get(owner.getUniqueId());
+        if (inst == null) return;
+        if (inst.type() != ShikigamiType.NUE && inst.type() != ShikigamiType.NUE_TOTALITY) return;
+
+        long now = System.currentTimeMillis();
+        if (now - inst.nueLastGlideMs() < NUE_GLIDE_COOLDOWN_MS) {
+            long rem = (NUE_GLIDE_COOLDOWN_MS - (now - inst.nueLastGlideMs())) / 1000;
+            owner.sendMessage(plugin.cfg().prefix() + "§eNue glide on cooldown: §f" + rem + "s");
+            return;
+        }
+        inst.setNueLastGlideMs(now);
+
+        // Apply glide: slow falling + forward boost
+        owner.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_FALLING, 200, 0, false, false, true)); // 10s
+        Vector boost = owner.getLocation().getDirection().normalize().multiply(1.5);
+        boost.setY(0.3);
+        owner.setVelocity(owner.getVelocity().add(boost));
+
+        owner.sendMessage(plugin.cfg().prefix() + "§eNue glide activated!");
+        owner.getWorld().playSound(owner.getLocation(), Sound.ENTITY_PHANTOM_SWOOP, 1.0f, 0.8f);
+
+        // Nue flies above owner
+        Entity nueEntity = inst.entityUuid() != null ? Bukkit.getEntity(inst.entityUuid()) : null;
+        if (nueEntity != null && nueEntity.isValid()) {
+            Location above = owner.getLocation().clone().add(0, 4, 0);
+            nueEntity.teleport(above);
+        }
+    }
+
     // ========== Toad AI ==========
 
     private void tickToad(Player owner, LivingEntity toad, ShikigamiInstance inst, boolean hostile) {
         long now = System.currentTimeMillis();
-        if (now - inst.toadLastTongueMs() < TOAD_TONGUE_COOLDOWN_MS) return;
+        if (now - inst.toadLastTongueMs() < TOAD_TONGUE_COOLDOWN_MS) {
+            // Still follow owner even during cooldown
+            if (!hostile && toad.getLocation().distance(owner.getLocation()) > SHIKIGAMI_FOLLOW_DISTANCE) {
+                if (toad instanceof Mob mob) mob.getPathfinder().moveTo(owner.getLocation(), 1.2);
+            }
+            return;
+        }
 
         if (hostile) {
             // Ritual: grab owner with tongue
@@ -1223,21 +1428,41 @@ public final class TenShadowsManager {
                 // Pull owner toward toad
                 Vector dir = toad.getLocation().toVector().subtract(owner.getLocation().toVector()).normalize();
                 owner.setVelocity(dir.multiply(1.5).setY(0.4));
+                owner.damage(TOAD_TONGUE_DAMAGE);
                 spawnTongueParticles(owner.getLocation(), toad.getLocation());
                 toad.getWorld().playSound(toad.getLocation(), Sound.ENTITY_FROG_TONGUE, 1.0f, 0.8f);
             }
         } else {
-            // Friendly: look at entity to pull targets; look at ground to pull owner to toad
-            LivingEntity nearby = findNearestHostile(owner, owner.getLocation(), TOAD_TONGUE_RANGE);
-            if (nearby != null) {
-                // Offensive: pull target toward owner
+            // Friendly: pull the target the owner last attacked; or pull nearest hostile
+            LivingEntity pullTarget = null;
+
+            // Check if there's an owner-attack target to pull
+            UUID ownerTargetId = inst.toadOwnerTarget();
+            if (ownerTargetId != null) {
+                Entity e = Bukkit.getEntity(ownerTargetId);
+                if (e instanceof LivingEntity le && !le.isDead() && le.isValid()) {
+                    pullTarget = le;
+                } else {
+                    inst.setToadOwnerTarget(null);
+                }
+            }
+
+            // Fallback to nearest hostile
+            if (pullTarget == null) {
+                pullTarget = findNearestHostile(owner, owner.getLocation(), TOAD_TONGUE_RANGE);
+            }
+
+            if (pullTarget != null) {
+                // Offensive: pull target toward owner and deal damage
                 inst.setToadLastTongueMs(now);
-                Vector dir = owner.getLocation().toVector().subtract(nearby.getLocation().toVector()).normalize();
-                nearby.setVelocity(dir.multiply(1.5).setY(0.4));
-                spawnTongueParticles(nearby.getLocation(), toad.getLocation());
+                Vector dir = owner.getLocation().toVector().subtract(pullTarget.getLocation().toVector()).normalize();
+                pullTarget.setVelocity(dir.multiply(1.5).setY(0.4));
+                pullTarget.damage(TOAD_TONGUE_DAMAGE, owner);
+                spawnTongueParticles(pullTarget.getLocation(), toad.getLocation());
                 toad.getWorld().playSound(toad.getLocation(), Sound.ENTITY_FROG_TONGUE, 1.0f, 1.0f);
+                inst.setToadOwnerTarget(null); // Clear after use
             } else {
-                // Defensive: pull owner toward toad
+                // Defensive: pull owner toward toad (teleport assist)
                 double distToToad = owner.getLocation().distance(toad.getLocation());
                 if (distToToad > 5.0) {
                     inst.setToadLastTongueMs(now);
@@ -1248,8 +1473,13 @@ public final class TenShadowsManager {
                 }
             }
 
-            // Follow owner
-            if (toad.getLocation().distance(owner.getLocation()) > SHIKIGAMI_FOLLOW_DISTANCE) {
+            // Follow owner — stay at player's side
+            double distToOwner = toad.getLocation().distance(owner.getLocation());
+            if (distToOwner > SHIKIGAMI_HARD_LIMIT) {
+                Vector right = getPerpendicularRight(owner);
+                Location side = snapToGround(owner.getLocation().clone().add(right.multiply(1.5)));
+                toad.teleport(side);
+            } else if (distToOwner > SHIKIGAMI_FOLLOW_DISTANCE) {
                 if (toad instanceof Mob mob) mob.getPathfinder().moveTo(owner.getLocation(), 1.2);
             }
         }
@@ -1272,12 +1502,34 @@ public final class TenShadowsManager {
 
     private void tickGreatSerpent(Player owner, LivingEntity serpent, ShikigamiInstance inst, boolean hostile) {
         long now = System.currentTimeMillis();
-        LivingEntity target = hostile ? owner : findNearestHostile(owner, serpent.getLocation(), 20.0);
+
+        // Friendly serpent: only attack the entity the owner attacked; don't auto-aggro
+        LivingEntity target;
+        if (hostile) {
+            target = owner;
+        } else {
+            // Use owner-directed attack target
+            UUID ownerTargetId = inst.serpentOwnerTarget();
+            if (ownerTargetId != null) {
+                Entity e = Bukkit.getEntity(ownerTargetId);
+                if (e instanceof LivingEntity le && !le.isDead() && le.isValid()) {
+                    target = le;
+                } else {
+                    inst.setSerpentOwnerTarget(null);
+                    target = null;
+                }
+            } else {
+                target = null;
+            }
+        }
+
         if (target == null) {
             if (!hostile) {
                 if (serpent.getLocation().distance(owner.getLocation()) > SHIKIGAMI_FOLLOW_DISTANCE) {
                     if (serpent instanceof Mob mob) mob.getPathfinder().moveTo(owner.getLocation(), 1.0);
                 }
+                // Clear any stale target
+                if (serpent instanceof Mob mob) mob.setTarget(null);
             }
             return;
         }
@@ -1293,6 +1545,9 @@ public final class TenShadowsManager {
                 Random rng = new Random();
                 le.setVelocity(new Vector((rng.nextDouble() - 0.5) * 0.8, 0.3, (rng.nextDouble() - 0.5) * 0.8));
                 serpent.getWorld().spawnParticle(Particle.CRIT, le.getLocation(), 3, 0.3, 0.2, 0.3, 0);
+                // Keep the grabbed entity elevated above the serpent
+                Location above = serpent.getLocation().clone().add(0, 6, 0);
+                le.teleport(above);
             } else {
                 inst.setSerpentGrabbedTarget(null);
                 inst.setSerpentShakeTicksLeft(0);
@@ -1323,14 +1578,17 @@ public final class TenShadowsManager {
                     serpent.getWorld().getBlockAt(targetLoc).getBlockData());
                 serpent.getWorld().playSound(targetLoc, Sound.BLOCK_GRAVEL_BREAK, 1.0f, 0.5f);
 
-                // Grab target — teleport above + levitation
-                Location above = targetLoc.clone().add(0, 4, 0);
-                target.teleport(above);
+                // Grab target — teleport serpent up to dramatize the grab
+                Location above = targetLoc.clone().add(0, 6, 0);
                 target.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, SERPENT_SHAKE_DURATION_TICKS, 1, false, false, false));
-                target.damage(6.0, owner);
+                target.damage(SERPENT_GRAB_INITIAL_DAMAGE, owner);
+                target.teleport(above);
+                serpent.teleport(above.clone().subtract(0, 2, 0)); // Serpent rises too
+                serpent.setFallDistance(0);
 
                 inst.setSerpentGrabbedTarget(target.getUniqueId());
                 inst.setSerpentShakeTicksLeft(SERPENT_SHAKE_DURATION_TICKS);
+                inst.setSerpentOwnerTarget(null); // Clear target after grab
 
                 serpent.getWorld().playSound(targetLoc, Sound.ENTITY_RAVAGER_ROAR, 1.0f, 0.5f);
             }
@@ -1341,24 +1599,38 @@ public final class TenShadowsManager {
 
     private void tickMaxElephant(Player owner, LivingEntity elephant, ShikigamiInstance inst, boolean hostile) {
         long now = System.currentTimeMillis();
-        LivingEntity target = hostile ? owner : findNearestHostile(owner, owner.getLocation(), 30.0);
+
+        // Prevent fall damage for elephant
+        elephant.setFallDistance(0);
+
+        LivingEntity target = hostile ? owner : null;
+        if (hostile) {
+            if (elephant instanceof Mob mob) mob.setTarget(target);
+        }
 
         if (!hostile) {
-            // Friendly: follow owner
-            if (elephant.getLocation().distance(owner.getLocation()) > SHIKIGAMI_FOLLOW_DISTANCE + 2) {
-                if (elephant instanceof Mob mob) mob.getPathfinder().moveTo(owner.getLocation(), 1.0);
-            }
-            // Water spew: place water blocks in cone in front of owner
-            if (now - inst.elephantLastCrushMs() > 3000L) {
-                inst.setElephantLastCrushMs(now);
-                spawnElephantWaterSpew(owner, inst);
+            // Friendly mode
+            if (target == null) {
+                // Water mode: elephant stays stationary, faces where owner is looking, spews water
+                if (now - inst.elephantLastCrushMs() > 2000L) {
+                    inst.setElephantLastCrushMs(now);
+                    // Rotate elephant to face owner's look direction
+                    Location elephantLoc = elephant.getLocation().clone();
+                    elephantLoc.setYaw(owner.getLocation().getYaw());
+                    elephant.teleport(elephantLoc);
+                    spawnElephantWaterSpew(owner, inst);
+                }
+                // Follow owner loosely
+                double dist = elephant.getLocation().distance(owner.getLocation());
+                if (dist > SHIKIGAMI_FOLLOW_DISTANCE + 2) {
+                    if (elephant instanceof Mob mob) mob.getPathfinder().moveTo(owner.getLocation(), 1.0);
+                }
             }
             return;
         }
 
         // Hostile (ritual): crush from above
         if (target == null) return;
-        if (elephant instanceof Mob mob) mob.setTarget(target);
 
         if (now - inst.elephantLastCrushMs() < ELEPHANT_CRUSH_COOLDOWN_MS) return;
         inst.setElephantLastCrushMs(now);
@@ -1372,11 +1644,13 @@ public final class TenShadowsManager {
             (rng.nextDouble() - 0.5) * 4, height, (rng.nextDouble() - 0.5) * 4);
         elephant.teleport(above);
         elephant.setVelocity(new Vector(0, -2.0, 0));
+        elephant.setFallDistance(0); // Ensure no fall damage
 
         final LivingEntity finalTarget = target;
         final double finalDamage = damage;
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!elephant.isValid()) return;
+            elephant.setFallDistance(0);
             // Check if landed near target
             double dist = elephant.getLocation().distance(finalTarget.getLocation());
             if (dist <= 5.0) {
@@ -1401,6 +1675,14 @@ public final class TenShadowsManager {
             if (b.getType() == Material.AIR) {
                 b.setType(Material.WATER);
                 inst.placedWaterBlocks().add(waterLoc.clone());
+            }
+            // Push + damage entities in the water stream
+            for (Entity nearby : w.getNearbyEntities(waterLoc, 1.0, 1.0, 1.0)) {
+                if (!(nearby instanceof LivingEntity le)) continue;
+                if (nearby.equals(owner)) continue;
+                if (isShikigamiEntity(nearby)) continue;
+                le.setVelocity(dir.clone().multiply(1.5).setY(0.3));
+                le.damage(ELEPHANT_WATER_PUSH_DAMAGE, owner);
             }
         }
     }
@@ -1452,20 +1734,26 @@ public final class TenShadowsManager {
     private void tickPiercingOx(Player owner, LivingEntity ox, ShikigamiInstance inst, boolean hostile) {
         long now = System.currentTimeMillis();
 
-        if (now - inst.oxLastChargeMs() < OX_CHARGE_COOLDOWN_MS) {
-            // Continue charging if in progress
-            if (inst.isOxCharging() && inst.oxSpawnPoint() != null) {
-                continueOxCharge(owner, ox, inst, hostile);
-            }
+        // Clear default Ravager targeting for friendly mode
+        if (!hostile && ox instanceof Mob mob) {
+            mob.setTarget(null);
+        }
+
+        // Continue charging if already in progress
+        if (inst.isOxCharging()) {
+            continueOxCharge(owner, ox, inst, hostile);
             return;
         }
+
+        // Wait for cooldown before starting a new charge
+        if (now - inst.oxLastChargeMs() < OX_CHARGE_COOLDOWN_MS) return;
 
         // Start a new charge
         inst.setOxLastChargeMs(now);
         inst.setOxCharging(true);
 
         if (hostile) {
-            // Ritual: charge from a random angle
+            // Ritual: charge from a random angle — 50 blocks before repositioning
             double angle = Math.random() * Math.PI * 2;
             double dist = 15.0 + Math.random() * 10;
             Location spawnPt = owner.getLocation().clone().add(
@@ -1479,15 +1767,22 @@ public final class TenShadowsManager {
             spawnPt.setYaw(dirToYaw(chargeDir));
             ox.teleport(spawnPt);
             ox.setVelocity(chargeDir.multiply(OX_CHARGE_SPEED * 2));
+            inst.setOxChargeDirection(chargeDir);
 
             ox.getWorld().spawnParticle(Particle.BLOCK_CRUMBLE, ox.getLocation(), 20, 0.5, 0.3, 0.5, 0,
                 ox.getWorld().getBlockAt(ox.getLocation()).getBlockData());
             ox.getWorld().playSound(ox.getLocation(), Sound.ENTITY_RAVAGER_ATTACK, 1.0f, 0.8f);
         } else {
-            // Friendly: charge in owner's facing direction from behind
+            // Friendly: charge in owner's facing direction (stored at summon; use current direction)
             inst.setOxSpawnPoint(ox.getLocation().clone());
             Vector chargeDir = owner.getLocation().getDirection().setY(0).normalize();
-            ox.setVelocity(chargeDir.multiply(OX_CHARGE_SPEED * 2));
+            // If we have a stored charge direction from summon, use that; otherwise use current
+            if (inst.oxChargeDirection() != null) {
+                chargeDir = inst.oxChargeDirection();
+            } else {
+                inst.setOxChargeDirection(chargeDir.clone());
+            }
+            ox.setVelocity(chargeDir.clone().multiply(OX_CHARGE_SPEED * 2));
             ox.getWorld().playSound(ox.getLocation(), Sound.ENTITY_RAVAGER_ATTACK, 1.0f, 1.0f);
         }
     }
@@ -1495,25 +1790,37 @@ public final class TenShadowsManager {
     private void continueOxCharge(Player owner, LivingEntity ox, ShikigamiInstance inst, boolean hostile) {
         if (inst.oxSpawnPoint() == null) { inst.setOxCharging(false); return; }
         double traveled = ox.getLocation().distance(inst.oxSpawnPoint());
+        double maxDist = hostile ? OX_MAX_CHARGE_DISTANCE : OX_FRIENDLY_MAX_CHARGE_DISTANCE;
+
+        // Maintain velocity during charge (gravity and collisions can slow it down)
+        if (inst.oxChargeDirection() != null) {
+            Vector currentVel = ox.getVelocity();
+            if (currentVel.lengthSquared() < OX_CHARGE_SPEED * OX_CHARGE_SPEED) {
+                Vector chargeDir = inst.oxChargeDirection().clone().normalize();
+                ox.setVelocity(chargeDir.multiply(OX_CHARGE_SPEED * 2));
+            }
+        }
 
         // Check hit with target
         LivingEntity target = hostile ? owner : null;
-        if (!hostile) target = findNearestHostile(owner, ox.getLocation(), 2.0);
+        if (!hostile) target = findNearestHostile(owner, ox.getLocation(), 2.5);
 
         if (target != null) {
             double hitDist = ox.getLocation().distance(target.getLocation());
             if (hitDist <= 2.5) {
-                double dmg = OX_MIN_DAMAGE + Math.min(traveled / OX_MAX_CHARGE_DISTANCE, 1.0) * (OX_MAX_DAMAGE - OX_MIN_DAMAGE);
+                double dmg = OX_MIN_DAMAGE + Math.min(traveled / maxDist, 1.0) * (OX_MAX_DAMAGE - OX_MIN_DAMAGE);
                 target.damage(dmg, owner);
                 target.setVelocity(ox.getVelocity().clone().setY(0.8));
                 ox.getWorld().spawnParticle(Particle.EXPLOSION, ox.getLocation(), 3, 0.5, 0.3, 0.5, 0);
                 ox.getWorld().playSound(ox.getLocation(), Sound.ENTITY_RAVAGER_STUNNED, 1.0f, 0.7f);
                 inst.setOxCharging(false);
+                inst.setOxChargeDirection(null);
             }
         }
 
-        if (traveled > OX_MAX_CHARGE_DISTANCE) {
+        if (traveled > maxDist) {
             inst.setOxCharging(false);
+            inst.setOxChargeDirection(null);
         }
     }
 
@@ -1564,6 +1871,7 @@ public final class TenShadowsManager {
         double adaptMult = 1.0 + inst.wheelSpins() * 0.08;
         int cycle = inst.attackCycle();
 
+        // Normal attacks are primary (cycles 0,1); special combo on every 4th-5th cycle
         switch (cycle) {
             case 0 -> {
                 model.playAnimation(mahoraga, "attack");
@@ -1578,14 +1886,37 @@ public final class TenShadowsManager {
                 inst.setAttackCycle(2);
             }
             case 2 -> {
-                // Uppercut — launches ~200 blocks high
+                // Normal attack again (cycle 2) — special only on 4th cycle (case 3)
+                model.playAnimation(mahoraga, "attack");
+                target.damage(MAHORAGA_NORMAL_DAMAGE * adaptMult, damageSource);
+                mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.ENTITY_IRON_GOLEM_ATTACK, 1.0f, 0.9f);
+                inst.setAttackCycle(3);
+            }
+            case 3 -> {
+                // Normal attack (4th in cycle) — go to special on next
+                model.playAnimation(mahoraga, "attack2");
+                target.damage(MAHORAGA_NORMAL_DAMAGE * adaptMult, damageSource);
+                mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.ENTITY_IRON_GOLEM_ATTACK, 1.0f, 1.1f);
+                inst.setAttackCycle(4);
+            }
+            case 4 -> {
+                // Uppercut — launches target high with lateral movement
                 model.playAnimation(mahoraga, "uppercut");
                 target.damage(MAHORAGA_UPPERCUT_DAMAGE * adaptMult, damageSource);
-                target.setVelocity(target.getVelocity().add(new Vector(0, MAHORAGA_UPPERCUT_LAUNCH_Y, 0)));
+
+                // Lateral direction: perpendicular to Mahoraga's facing (flings to the left)
+                Vector mahoFacing = mahoraga.getLocation().getDirection().normalize();
+                Vector left = new Vector(-mahoFacing.getZ(), 0, mahoFacing.getX()).normalize();
+                Vector launchVel = new Vector(
+                    left.getX() * MAHORAGA_UPPERCUT_LAUNCH_LATERAL,
+                    MAHORAGA_UPPERCUT_LAUNCH_Y,
+                    left.getZ() * MAHORAGA_UPPERCUT_LAUNCH_LATERAL
+                );
+                target.setVelocity(target.getVelocity().add(launchVel));
                 mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.ENTITY_IRON_GOLEM_ATTACK, 1.2f, 1.4f);
 
                 final LivingEntity finalTarget = target;
-                // After MAHORAGA_DOWNSLAM_DELAY_TICKS ticks (~apex time), teleport Mahoraga just above target
+                final double finalAdaptMult = adaptMult;
                 Bukkit.getScheduler().runTaskLater(plugin, () -> {
                     if (!mahoraga.isValid() || !finalTarget.isValid()) return;
 
@@ -1596,8 +1927,8 @@ public final class TenShadowsManager {
                     mahoraga.teleport(above);
 
                     model.playAnimation(mahoraga, "downslam");
-                    // Slam down: deal damage and apply strong downward force to target
-                    finalTarget.damage(MAHORAGA_DOWNSLAM_DAMAGE * adaptMult, damageSource);
+                    // Slam down: deal massive damage + downward force
+                    finalTarget.damage(MAHORAGA_DOWNSLAM_DAMAGE * finalAdaptMult, damageSource);
                     finalTarget.setFallDistance(0);
                     finalTarget.setVelocity(new Vector(0, -MAHORAGA_DOWNSLAM_KNOCKBACK, 0));
 
@@ -1610,10 +1941,10 @@ public final class TenShadowsManager {
                     Bukkit.getScheduler().runTaskLater(plugin, () -> {
                         if (mahoraga.isValid()) mahoraga.teleport(snapToGround(targetNow.clone()));
                     }, 20L);
-                }, MAHORAGA_DOWNSLAM_DELAY_TICKS); // ~apex time
-                inst.setAttackCycle(3);
+                }, MAHORAGA_DOWNSLAM_DELAY_TICKS);
+                inst.setAttackCycle(5);
             }
-            case 3 -> {
+            case 5 -> {
                 // Wheel adaptation phase — check if enough time has passed since last spin
                 String phenomenonType = inst.lastPhenomenonType();
                 if (phenomenonType != null && inst.wheelSpins() < AdaptationTier.MAX_SPINS) {
@@ -1624,7 +1955,14 @@ public final class TenShadowsManager {
                             mahoraga.getLocation().add(0, 3.5, 0), 40, 0.3, 0.3, 0.3, 0.02);
                         mahoraga.getWorld().playSound(mahoraga.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 1.0f, 0.6f);
 
-                        String msg = plugin.cfg().prefix() + "§5Mahoraga has started adapting to §f" + phenomenonType + "§5! "
+                        // Health regeneration during adaptation (10% of max HP)
+                        try {
+                            double maxHp = mahoraga.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+                            double regen = maxHp * MAHORAGA_ADAPT_REGEN_PCT;
+                            mahoraga.setHealth(Math.min(maxHp, mahoraga.getHealth() + regen));
+                        } catch (Exception ignored) {}
+
+                        String msg = plugin.cfg().prefix() + "§5Mahoraga has started adapting to §f[" + phenomenonType + "]§5! "
                             + inst.currentTier().displayName() + " §8(" + (int)(inst.adaptationReduction() * 100) + "% reduction)";
                         for (Player nearby : mahoraga.getWorld().getPlayers()) {
                             if (nearby.getLocation().distance(mahoraga.getLocation()) <= 50) {
@@ -1668,6 +2006,20 @@ public final class TenShadowsManager {
         }
     }
 
+    /**
+     * Notify that an owner attacked an entity. Used to direct Toad/Great Serpent attacks.
+     * Called by TenShadowsListener when owner hits something.
+     */
+    public void notifyOwnerAttacked(UUID ownerUuid, UUID targetUuid) {
+        ShikigamiInstance inst = activeShikigami.get(ownerUuid);
+        if (inst == null) return;
+        if (inst.type() == ShikigamiType.TOAD || inst.type() == ShikigamiType.TOAD_TOTALITY) {
+            inst.setToadOwnerTarget(targetUuid);
+        } else if (inst.type() == ShikigamiType.GREAT_SERPENT) {
+            inst.setSerpentOwnerTarget(targetUuid);
+        }
+    }
+
     /** Open the shadow storage for a player */
     public void openShadowStorage(Player p) {
         if (!hasTechnique(p)) {
@@ -1680,6 +2032,15 @@ public final class TenShadowsManager {
         private void cancelRitualInternal(UUID ownerUuid) {
         TenShadowsProfile prof = getProfile(ownerUuid);
         removeEntity(parseUuid(prof.ritualEntityUuid));
+
+        // Clean up ritual rabbit swarm extras
+        List<UUID> extraRabbits = ritualRabbitSwarmsUuids.remove(ownerUuid);
+        if (extraRabbits != null) {
+            for (UUID rabbitId : extraRabbits) {
+                removeEntity(rabbitId);
+            }
+        }
+
         BossBar bar = ritualBossBars.remove(ownerUuid);
         if (bar != null) bar.removeAll();
         prof.ritualActive = false;
@@ -1728,6 +2089,7 @@ public final class TenShadowsManager {
         removeActiveShikigami(ownerUuid, false);
         cancelRitualInternal(ownerUuid);
         rabbitWallActive.remove(ownerUuid);
+        dismissCooldownUntilMs.remove(ownerUuid);
 
         Player owner = Bukkit.getPlayer(ownerUuid);
         if (owner != null) {

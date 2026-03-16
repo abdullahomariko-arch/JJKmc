@@ -42,8 +42,9 @@ public final class TenShadowsScrollListener implements Listener {
 
         TenShadowsProfile prof = manager.getProfile(p.getUniqueId());
 
-        // Allow scrolling even if a shikigami is summoned (just for browsing)
-        // But do NOT update hotbar slot — cancel the event
+        // Ensure scrollIndex is initialised (handles first-use without /tenshadows command)
+        if (prof.getScrollWheelShikigami().isEmpty()) return;
+
         int prev = e.getPreviousSlot();
         int next = e.getNewSlot();
 
@@ -75,12 +76,14 @@ public final class TenShadowsScrollListener implements Listener {
 
         // Cancel any pending ritual countdown when Shift is released
         cancelRitualCountdown(p.getUniqueId());
+        ui.clearHover(p.getUniqueId());
     }
 
     /**
      * Sneak + right-click:
-     *   - If a shikigami is summoned → dismiss it
+     *   - If a shikigami is summoned → dismiss it (if dismiss cooldown has passed)
      *   - If selected shikigami is UNLOCKED → summon it
+     *   - If totality override is active (3s hover) → summon the totality version
      *   - If selected shikigami is LOCKED → start a ritual countdown (5...4...3...2...1...)
      */
     @EventHandler
@@ -95,7 +98,7 @@ public final class TenShadowsScrollListener implements Listener {
 
         TenShadowsProfile prof = manager.getProfile(p.getUniqueId());
 
-        // If already summoned, dismiss on sneak + right click
+        // If already summoned, dismiss on sneak + right click (cooldown checked in manager.dismiss)
         if (prof.activeSummonId != null) {
             manager.dismiss(p);
             return;
@@ -107,6 +110,14 @@ public final class TenShadowsScrollListener implements Listener {
         ShikigamiType selected = ui.getSelected(prof);
         if (selected == null) {
             p.sendMessage(plugin.cfg().prefix() + "§cNo shikigami available. Sneak + scroll to select.");
+            return;
+        }
+
+        // Check if totality override is active after 3s hover
+        ShikigamiType totalityOverride = ui.getTotalityOverride(p, prof);
+        if (totalityOverride != null) {
+            manager.trySummon(p, totalityOverride);
+            ui.clearHover(p.getUniqueId());
             return;
         }
 
