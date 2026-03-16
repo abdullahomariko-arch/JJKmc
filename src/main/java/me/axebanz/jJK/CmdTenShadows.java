@@ -40,7 +40,21 @@ public final class CmdTenShadows implements CommandExecutor, TabCompleter {
         switch (sub) {
             case "summon" -> {
                 if (args.length < 2) {
-                    p.sendMessage(plugin.cfg().prefix() + "§cUsage: /" + label + " summon <shikigami>");
+                    // Summon the currently selected shikigami from scroll wheel
+                    TenShadowsProfile prof2 = manager.getProfile(p.getUniqueId());
+                    TenShadowsSelectionUI ui = new TenShadowsSelectionUI(plugin);
+                    ShikigamiType selected = ui.getSelected(prof2);
+                    if (selected == null) {
+                        p.sendMessage(plugin.cfg().prefix() + "§cNo shikigami selected. Use Shift + Scroll to select.");
+                        return true;
+                    }
+                    if (prof2.isUnlocked(selected)) {
+                        manager.trySummon(p, selected);
+                    } else if (selected.requiresRitual() && !prof2.isDestroyed(selected)) {
+                        manager.startRitual(p, selected);
+                    } else {
+                        p.sendMessage(plugin.cfg().prefix() + "§c" + selected.displayName() + " §cis locked. Start a ritual first.");
+                    }
                     return true;
                 }
                 ShikigamiType type = ShikigamiType.from(args[1]);
@@ -50,6 +64,11 @@ public final class CmdTenShadows implements CommandExecutor, TabCompleter {
                     return true;
                 }
                 manager.trySummon(p, type);
+                return true;
+            }
+            case "store" -> {
+                // Open shadow storage GUI
+                manager.openShadowStorage(p);
                 return true;
             }
             case "dismiss" -> {
@@ -113,8 +132,9 @@ public final class CmdTenShadows implements CommandExecutor, TabCompleter {
     private void sendHelp(Player p, String label) {
         String pref = plugin.cfg().prefix();
         p.sendMessage(pref + "§8§lTen Shadows Technique:");
-        p.sendMessage("§f/" + label + " summon <shikigami> §7— Summon a tamed shikigami");
+        p.sendMessage("§f/" + label + " summon [shikigami] §7— Summon selected/named shikigami");
         p.sendMessage("§f/" + label + " dismiss §7— Dismiss current shikigami");
+        p.sendMessage("§f/" + label + " store §7— Open shadow storage");
         p.sendMessage("§f/" + label + " ritual <shikigami> §7— Start a taming ritual");
         p.sendMessage("§f/" + label + " cancel §7— Cancel active ritual");
         p.sendMessage("§f/" + label + " list §7— Show all shikigami and their status");
@@ -137,7 +157,7 @@ public final class CmdTenShadows implements CommandExecutor, TabCompleter {
         if (!"ten_shadows".equalsIgnoreCase(assignedId)) return List.of();
 
         if (args.length == 1) {
-            return List.of("summon", "dismiss", "ritual", "cancel", "list", "status");
+            return List.of("summon", "dismiss", "store", "ritual", "cancel", "list", "status");
         }
 
         if (args.length == 2) {

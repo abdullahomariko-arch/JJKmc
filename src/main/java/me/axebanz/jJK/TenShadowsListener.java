@@ -1,5 +1,6 @@
 package me.axebanz.jJK;
 
+import org.bukkit.Material;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -10,6 +11,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.UUID;
 
@@ -52,28 +54,27 @@ public final class TenShadowsListener implements Listener {
 
         ShikigamiType type = manager.getShikigamiType(victim);
 
-        // ArmorStand-based shikigami (Mahoraga) — handle damage manually
+        // ArmorStand-based shikigami (legacy) — handle damage manually
         if (type != null && type.usesArmorStandModel()) {
-            e.setCancelled(true); // ArmorStands don't take damage normally
+            e.setCancelled(true);
 
-            // Only allow damage during ritual (from owner) or from enemies (when friendly)
             boolean isRitual = manager.isRitualMob(victim);
-
             if (isRitual && attacker.getUniqueId().equals(ownerUuid)) {
-                // Owner attacking ritual Mahoraga — deal damage
                 double damage = e.getDamage();
                 manager.damageArmorStandShikigami(ownerUuid, damage);
-
-                // Track phenomenon for adaptation
-                // (simplified — attacker weapon type)
                 attacker.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ENTITY_IRON_GOLEM_HURT, 0.8f, 1.0f);
             } else if (!isRitual && !attacker.getUniqueId().equals(ownerUuid)) {
-                // Enemy attacking friendly Mahoraga — deal damage
                 double damage = e.getDamage();
                 manager.damageArmorStandShikigami(ownerUuid, damage);
                 attacker.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ENTITY_IRON_GOLEM_HURT, 0.8f, 1.0f);
             }
             return;
+        }
+
+        // Mahoraga (Iron Golem) — track phenomenon for adaptation when it's attacked
+        if (type == ShikigamiType.MAHORAGA) {
+            String phenomenon = detectPhenomenon(attacker);
+            manager.notifyMahoragaHit(ownerUuid, phenomenon, e.getDamage());
         }
 
         // Normal mob shikigami
@@ -83,6 +84,35 @@ public final class TenShadowsListener implements Listener {
         if (attacker.getUniqueId().equals(ownerUuid)) {
             e.setCancelled(true);
         }
+    }
+
+    /**
+     * Detect the phenomenon type based on attacker's weapon/technique.
+     */
+    private String detectPhenomenon(Player attacker) {
+        ItemStack weapon = attacker.getInventory().getItemInMainHand();
+        Material mat = weapon.getType();
+
+        // Check if attacker has a cursed technique
+        String techId = plugin.techniqueManager().getAssignedId(attacker.getUniqueId());
+        if (techId != null && !techId.isEmpty()) {
+            return "technique:" + techId;
+        }
+
+        // Classify by weapon material
+        if (mat.name().contains("SWORD") || mat.name().contains("AXE")) {
+            return "melee:" + mat.name().toLowerCase();
+        }
+        if (mat == Material.BOW || mat == Material.CROSSBOW) {
+            return "bow";
+        }
+        if (mat == Material.MACE) {
+            return "mace";
+        }
+        if (mat == Material.AIR || mat.name().contains("FIST")) {
+            return "unarmed";
+        }
+        return "melee:generic";
     }
 
     @EventHandler
