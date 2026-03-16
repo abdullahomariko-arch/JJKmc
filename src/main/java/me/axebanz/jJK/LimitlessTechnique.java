@@ -1,0 +1,31 @@
+package me.axebanz.jJK;
+
+import org.bukkit.entity.Player;
+
+/**
+ * Placeholder technique for the Limitless (Infinity) technique.
+ * Currently does nothing — stub for future implementation.
+ */
+public final class LimitlessTechnique implements Technique {
+
+    private final JJKCursedToolsPlugin plugin;
+
+    public LimitlessTechnique(JJKCursedToolsPlugin plugin) {
+        this.plugin = plugin;
+    }
+
+    @Override public String id() { return "limitless"; }
+    @Override public String displayName() { return "§bLimitless"; }
+    @Override public String hexColor() { return "#00BFFF"; }
+    @Override public String glyphTag() { return "<glyph:technique_limitless:colorable>"; }
+    @Override public String iconColor() { return "§b"; }
+
+    @Override
+    public boolean canUse(Player p) { return true; }
+
+    @Override
+    public void castAbility(Player player, AbilitySlot slot) {
+        // Placeholder — Limitless technique not yet implemented
+        player.sendMessage(plugin.cfg().prefix() + "§bLimitless §7— coming soon.");
+    }
+}

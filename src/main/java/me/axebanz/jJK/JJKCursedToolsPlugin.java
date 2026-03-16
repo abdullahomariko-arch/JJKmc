@@ -283,6 +283,14 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /tenshadows is missing from plugin.yml");
         }
 
+        // Limitless command (placeholder — does nothing)
+        if (getCommand("limitless") != null) {
+            getCommand("limitless").setExecutor((sender, command, label, args) -> {
+                sender.sendMessage(cfg().prefix() + "§bLimitless §7— coming soon.");
+                return true;
+            });
+        }
+
         actionbarUI.start();
         bossbarUI.start();
         cursedEnergyManager.startRegenTask();
@@ -378,5 +386,6 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         techniqueRegistry.register(new SeanceTechnique(this));
         techniqueRegistry.register(new StrawDollTechnique(this));
         techniqueRegistry.register(new TenShadowsTechnique(this));
+        techniqueRegistry.register(new LimitlessTechnique(this));
     }
 }

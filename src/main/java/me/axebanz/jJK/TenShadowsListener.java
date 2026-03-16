@@ -87,6 +87,36 @@ public final class TenShadowsListener implements Listener {
     }
 
     /**
+     * When the owner hits an entity, update Toad's pull target and Great Serpent's target.
+     * This allows Toad to pull whoever the player hits, and Great Serpent to attack only the player's target.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onOwnerHitEntity(EntityDamageByEntityEvent e) {
+        if (!(e.getDamager() instanceof Player attacker)) return;
+        if (!(e.getEntity() instanceof LivingEntity victim)) return;
+
+        // Don't track hits on shikigami entities
+        if (manager.isShikigamiEntity(victim)) return;
+
+        UUID ownerUuid = attacker.getUniqueId();
+        TenShadowsProfile prof = manager.getProfile(ownerUuid);
+        if (prof.activeSummonId == null) return;
+
+        ShikigamiType activeType = ShikigamiType.from(prof.activeSummonId);
+        if (activeType == null) return;
+
+        // Set Toad pull target
+        if (activeType == ShikigamiType.TOAD) {
+            prof.toadPullTargetUuid = victim.getUniqueId();
+        }
+
+        // Set Great Serpent target
+        if (activeType == ShikigamiType.GREAT_SERPENT) {
+            prof.serpentTargetUuid = victim.getUniqueId();
+        }
+    }
+
+    /**
      * Detect the phenomenon type based on attacker's weapon/technique.
      */
     private String detectPhenomenon(Player attacker) {

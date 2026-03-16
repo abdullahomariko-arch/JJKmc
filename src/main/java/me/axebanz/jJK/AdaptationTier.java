@@ -17,8 +17,8 @@ public enum AdaptationTier {
     /** Tier 4 — After 4th spin (12 min), 90% reduction + counter-attack bonus */
     COUNTER_INTEGRATION(4, "§5Counter-Integration", 0.90, "Damage reduced by 90% + counter-attack.", 4);
 
-    /** How long between wheel spins in milliseconds (3 minutes) */
-    public static final long SPIN_GAP_MS = 3L * 60L * 1000L;
+    /** How long between wheel spins in milliseconds (2 minutes) */
+    public static final long SPIN_GAP_MS = 2L * 60L * 1000L;
     /** Maximum wheel spins */
     public static final int MAX_SPINS = 4;
 
