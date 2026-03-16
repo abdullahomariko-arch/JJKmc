@@ -32,6 +32,12 @@ public enum ShikigamiType {
 
     public String id() { return id; }
     public String displayName() { return displayName; }
+    /**
+     * Max health of this shikigami's entity.
+     * A value of -1 indicates the shikigami is indestructible — it goes on cooldown instead of
+     * being permanently destroyed, and its entity is made invulnerable in-world.
+     * See isIndestructible() and spawnMobShikigami() which guards with maxHealth > 0.
+     */
     public double maxHealth() { return maxHealth; }
     public boolean respawns() { return respawns; }
     public boolean requiresRitual() { return requiresRitual; }

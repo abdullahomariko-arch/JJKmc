@@ -654,7 +654,8 @@ public final class TenShadowsManager {
             return;
         }
 
-        Location spawnLoc = p.getLocation().clone().add(p.getLocation().getDirection().clone().setY(0).normalize().multiply(4));
+        Vector spawnDir = p.getLocation().getDirection().clone().setY(0).normalize();
+        Location spawnLoc = p.getLocation().clone().add(spawnDir.multiply(4));
         spawnLoc.setY(p.getLocation().getY());
         spawnLoc = snapToGround(spawnLoc);
 
