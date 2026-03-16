@@ -61,7 +61,7 @@ public final class TenShadowsManager {
     private static final double MAHORAGA_NORMAL_DAMAGE = 18.0;
     private static final double MAHORAGA_UPPERCUT_DAMAGE = 14.0;
     private static final double MAHORAGA_DOWNSLAM_DAMAGE = 30.0;
-    // Launch velocity Y: ~9.0 gives a large upward arc as requested (problem specifies 8-10)
+    // Launch velocity Y for a high arc; lateral adds left/right movement on uppercut
     private static final double MAHORAGA_UPPERCUT_LAUNCH_Y = 9.0;
     // Lateral launch adds X/Z so the target doesn't fly straight up
     private static final double MAHORAGA_UPPERCUT_LAUNCH_LATERAL = 0.8;
@@ -426,7 +426,7 @@ public final class TenShadowsManager {
         // Total: 65 rabbits arranged in concentric rings floating at chest/head height
         int[] tierCounts = {8, 16, 24, 17};
         double[] tierRadii = {1.2, 2.0, 2.8, 1.8};
-        double[] tierYOffsets = {1.0, 1.2, 1.0, 1.8}; // float at body height
+        double[] tierYOffsets = {1.0, 1.2, 1.0, 1.8}; // vertical variation: waist to above-head height
         int globalIdx = 0;
 
         for (int tier = 0; tier < tierCounts.length; tier++) {
@@ -1871,7 +1871,7 @@ public final class TenShadowsManager {
         double adaptMult = 1.0 + inst.wheelSpins() * 0.08;
         int cycle = inst.attackCycle();
 
-        // Normal attacks are primary (cycles 0,1); special combo on every 4th-5th cycle
+        // Attack cycle: 4 normal attacks (cycles 0-3) followed by uppercut+downslam combo (cycles 4-5)
         switch (cycle) {
             case 0 -> {
                 model.playAnimation(mahoraga, "attack");
@@ -1904,9 +1904,9 @@ public final class TenShadowsManager {
                 model.playAnimation(mahoraga, "uppercut");
                 target.damage(MAHORAGA_UPPERCUT_DAMAGE * adaptMult, damageSource);
 
-                // Lateral direction: perpendicular to Mahoraga's facing (flings to the left)
+                // Lateral direction: true left relative to Mahoraga's facing (flings target to the left)
                 Vector mahoFacing = mahoraga.getLocation().getDirection().normalize();
-                Vector left = new Vector(-mahoFacing.getZ(), 0, mahoFacing.getX()).normalize();
+                Vector left = new Vector(mahoFacing.getZ(), 0, -mahoFacing.getX()).normalize();
                 Vector launchVel = new Vector(
                     left.getX() * MAHORAGA_UPPERCUT_LAUNCH_LATERAL,
                     MAHORAGA_UPPERCUT_LAUNCH_Y,
