@@ -125,6 +125,13 @@ tools:
     material: ARROW
     customModelData: 10010
 
+  judges_hammer:
+    displayName: "§6Judge's Hammer"
+    material: NETHERITE_HOE
+    customModelData: 10011
+    unbreakable: true
+    attackDamage: 8.0
+
   wheel:
     categories:
       - MELEE

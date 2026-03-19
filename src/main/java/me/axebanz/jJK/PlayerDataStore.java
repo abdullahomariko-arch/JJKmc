@@ -117,6 +117,10 @@ public final class PlayerDataStore {
         }
 
         prof.shadowStorageBase64 = y.getString("tenShadows.shadowStorageBase64", null);
+
+        // ===== Cursed Energy Progression =====
+        prof.ceLevelXp = y.getInt("ceProgression.xp", 0);
+        prof.rctCooldownUntilMs = y.getLong("ceProgression.rctCooldownUntilMs", 0L);
     }
 
     public void save(UUID uuid) {
@@ -185,6 +189,10 @@ public final class PlayerDataStore {
         }
 
         y.set("tenShadows.shadowStorageBase64", prof.shadowStorageBase64);
+
+        // ===== Cursed Energy Progression =====
+        y.set("ceProgression.xp", prof.ceLevelXp);
+        y.set("ceProgression.rctCooldownUntilMs", prof.rctCooldownUntilMs);
 
         try {
             y.save(file);

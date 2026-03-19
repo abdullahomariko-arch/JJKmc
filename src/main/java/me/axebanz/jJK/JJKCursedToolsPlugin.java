@@ -81,6 +81,15 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     private TenShadowsManager tenShadowsManager;
     private ShadowStorageGUI shadowStorageGUI;
 
+    // ===== Limitless =====
+    private LimitlessManager limitlessManager;
+
+    // ===== Six Eyes Trait =====
+    private SixEyesTrait sixEyesTrait;
+
+    // ===== Deadly Sentencing =====
+    private DeadlySentencingManager deadlySentencingManager;
+
     public static JJKCursedToolsPlugin get() {
         return instance;
     }
@@ -169,6 +178,15 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         this.tenShadowsManager = new TenShadowsManager(this);
         this.shadowStorageGUI = new ShadowStorageGUI(this);
 
+        // ===== Six Eyes Trait =====
+        this.sixEyesTrait = new SixEyesTrait(this);
+
+        // ===== Limitless =====
+        this.limitlessManager = new LimitlessManager(this);
+
+        // ===== Deadly Sentencing =====
+        this.deadlySentencingManager = new DeadlySentencingManager(this);
+
         // ===== Listeners =====
         Bukkit.getPluginManager().registerEvents(new PlayerLifecycleListener(this, playerDataStore, cursedEnergyManager, bossbarUI, actionbarUI), this);
         Bukkit.getPluginManager().registerEvents(new ToolUseListener(this, abilityService, cursedToolFactory), this);
@@ -187,12 +205,17 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new SeanceListener(this, seanceManager), this);
         Bukkit.getPluginManager().registerEvents(new StrawDollListener(this, strawDollManager), this);
 
-        // Ten Shadows listener
         Bukkit.getPluginManager().registerEvents(new TenShadowsListener(this, tenShadowsManager), this);
         // Ten Shadows scroll wheel selection
         Bukkit.getPluginManager().registerEvents(new TenShadowsScrollListener(this, tenShadowsManager), this);
         // Shadow Storage GUI
         Bukkit.getPluginManager().registerEvents(shadowStorageGUI, this);
+
+        // Cursed Energy Progression
+        Bukkit.getPluginManager().registerEvents(new CursedEnergyListener(this), this);
+
+        // Limitless
+        Bukkit.getPluginManager().registerEvents(new LimitlessListener(this, limitlessManager), this);
 
         // ===== Commands =====
         this.commandRouter = new CommandRouter(this);
@@ -283,12 +306,31 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /tenshadows is missing from plugin.yml");
         }
 
-        // Limitless command (placeholder — does nothing)
+        // Limitless command (full implementation)
         if (getCommand("limitless") != null) {
-            getCommand("limitless").setExecutor((sender, command, label, args) -> {
-                sender.sendMessage(cfg().prefix() + "§bLimitless §7— coming soon.");
-                return true;
-            });
+            CmdLimitless limitlessCmd = new CmdLimitless(this);
+            getCommand("limitless").setExecutor(limitlessCmd);
+            getCommand("limitless").setTabCompleter(limitlessCmd);
+        } else {
+            getLogger().warning("Command /limitless is missing from plugin.yml");
+        }
+
+        // Deadly Sentencing command
+        if (getCommand("deadlysentencing") != null) {
+            CmdDeadlySentencing dsCmd = new CmdDeadlySentencing(this);
+            getCommand("deadlysentencing").setExecutor(dsCmd);
+            getCommand("deadlysentencing").setTabCompleter(dsCmd);
+        } else {
+            getLogger().warning("Command /deadlysentencing is missing from plugin.yml");
+        }
+
+        // Six Eyes trait command
+        if (getCommand("sixtrait") != null) {
+            CmdSixTrait sixTraitCmd = new CmdSixTrait(this);
+            getCommand("sixtrait").setExecutor(sixTraitCmd);
+            getCommand("sixtrait").setTabCompleter(sixTraitCmd);
+        } else {
+            getLogger().warning("Command /sixtrait is missing from plugin.yml");
         }
 
         actionbarUI.start();
@@ -369,6 +411,10 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     public TenShadowsManager tenShadows() { return tenShadowsManager; }
     public ShadowStorageGUI shadowStorage() { return shadowStorageGUI; }
 
+    public LimitlessManager limitless() { return limitlessManager; }
+    public SixEyesTrait sixEyes() { return sixEyesTrait; }
+    public DeadlySentencingManager deadlySentencing() { return deadlySentencingManager; }
+
     public void reloadAll() {
         configManager.load();
         if (globalDataStore != null) globalDataStore.reload();
@@ -387,5 +433,8 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         techniqueRegistry.register(new StrawDollTechnique(this));
         techniqueRegistry.register(new TenShadowsTechnique(this));
         techniqueRegistry.register(new LimitlessTechnique(this));
+        techniqueRegistry.register(new DeadlySentencingTechnique(this));
+        techniqueRegistry.register(new JacobsLadderTechnique(this));
+        techniqueRegistry.register(new CurseManipulationTechnique(this));
     }
 }

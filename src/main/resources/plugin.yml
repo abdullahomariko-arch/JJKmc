@@ -60,5 +60,15 @@
       usage: "/tenshadows <summon|dismiss|store|ritual|list|status>"
 
     limitless:
-      description: "Limitless Technique commands (placeholder)"
-      usage: "/limitless"
+      description: "Limitless Technique commands"
+      aliases: [ll]
+      usage: "/limitless <infinity|blue|bluemax|red|redmax|purple|nuke|void|status>"
+
+    deadlysentencing:
+      description: "Deadly Sentencing Technique commands"
+      aliases: [ds]
+      usage: "/deadlysentencing <barrage|slam|domain|status>"
+
+    sixtrait:
+      description: "Manage the Six Eyes trait"
+      usage: "/sixtrait <give|remove|check> <player>"
