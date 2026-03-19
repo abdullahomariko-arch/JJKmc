@@ -16,7 +16,9 @@ public enum ToolId {
     CURSED_BODY("cursed_body"),
 
     STRAW_DOLL_HAMMER("hammer"),
-    STRAW_DOLL_NAIL("nail");
+    STRAW_DOLL_NAIL("nail"),
+
+    JUDGES_HAMMER("judges_hammer");
 
     public final String id;
     ToolId(String id) { this.id = id; }

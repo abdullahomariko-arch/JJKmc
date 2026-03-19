@@ -48,7 +48,7 @@ public final class CmdGive implements SubCommand {
                 return true;
             }
             // FIXED: Show all available items including straw doll items
-            sender.sendMessage(pref + "§cInvalid tool. Options: dragon_bone, split_soul_katana, kamutoke, inverted_spear, divine_wheel, playfulcloud, yuta_ring, imbued_cursed_katana, cursed_body, straw_doll_hammer, straw_doll_nail, bindingvow");
+            sender.sendMessage(pref + "§cInvalid tool. Options: dragon_bone, split_soul_katana, kamutoke, inverted_spear, divine_wheel, playfulcloud, yuta_ring, imbued_cursed_katana, cursed_body, straw_doll_hammer, straw_doll_nail, judges_hammer, bindingvow");
             return true;
         }
 
@@ -83,6 +83,7 @@ public final class CmdGive implements SubCommand {
                     "cursed_body",
                     "straw_doll_hammer",
                     "straw_doll_nail",
+                    "judges_hammer",
                     "bindingvow"
             );
         }

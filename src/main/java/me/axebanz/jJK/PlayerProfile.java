@@ -60,6 +60,20 @@ public final class PlayerProfile {
     /** Shadow Storage — serialised inventory base64 (like rikaStorageBase64) */
     public String shadowStorageBase64 = null;
 
+    // ===== Cursed Energy Progression =====
+    /** Raw XP points used to compute CE level (level = ceLevelXp / XP_PER_LEVEL) */
+    public int ceLevelXp = 0;
+
+    // ===== Limitless / Six Eyes =====
+    /** Whether this player has activated infinity toggle */
+    public boolean limitlessInfinityActive = false;
+    /** Whether player can use the nuke (set when Max Blue kills an entity) */
+    public boolean limitlessCanNuke = false;
+
+    // ===== RCT state =====
+    /** System.currentTimeMillis() when RCT cooldown ends */
+    public long rctCooldownUntilMs = 0L;
+
     public PlayerProfile(UUID uuid) {
         this.uuid = uuid;
     }

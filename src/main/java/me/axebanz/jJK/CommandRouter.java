@@ -29,6 +29,7 @@ public final class CommandRouter implements CommandExecutor, TabCompleter {
             register(new CmdSetWaitingRoom(plugin, plugin.seanceManager()));
         }
         register(new CmdRemoveBindingVow(plugin));
+        register(new CmdCursedEnergy(plugin));
     }
 
     @Override

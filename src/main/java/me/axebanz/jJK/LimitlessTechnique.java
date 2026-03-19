@@ -3,8 +3,9 @@ package me.axebanz.jJK;
 import org.bukkit.entity.Player;
 
 /**
- * Placeholder technique for the Limitless (Infinity) technique.
- * Currently does nothing — stub for future implementation.
+ * Limitless Technique — requires Six Eyes trait for full power.
+ * Abilities: Infinity, Blue, Blue Max, Red, Red Max, Hollow Purple, Hollow Purple Nuke,
+ * Domain Expansion: Infinite Void.
  */
 public final class LimitlessTechnique implements Technique {
 
@@ -25,7 +26,16 @@ public final class LimitlessTechnique implements Technique {
 
     @Override
     public void castAbility(Player player, AbilitySlot slot) {
-        // Placeholder — Limitless technique not yet implemented
-        player.sendMessage(plugin.cfg().prefix() + "§bLimitless §7— coming soon.");
+        LimitlessManager mgr = plugin.limitless();
+        if (mgr == null) {
+            player.sendMessage(plugin.cfg().prefix() + "§bLimitless §7— coming soon.");
+            return;
+        }
+        switch (slot) {
+            case ONE -> mgr.toggleInfinity(player);
+            case TWO -> mgr.castBlue(player);
+            default -> { }
+        }
     }
 }
+
