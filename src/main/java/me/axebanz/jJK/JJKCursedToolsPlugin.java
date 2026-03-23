@@ -87,6 +87,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     // ===== Six Eyes Trait =====
     private SixEyesTrait sixEyesTrait;
 
+    // ===== Blood Manipulation =====
+    private BloodManipulationManager bloodManipulationManager;
+
     // ===== Deadly Sentencing =====
     private DeadlySentencingManager deadlySentencingManager;
 
@@ -184,6 +187,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         // ===== Limitless =====
         this.limitlessManager = new LimitlessManager(this);
 
+        // ===== Blood Manipulation =====
+        this.bloodManipulationManager = new BloodManipulationManager(this);
+
         // ===== Deadly Sentencing =====
         this.deadlySentencingManager = new DeadlySentencingManager(this);
 
@@ -216,6 +222,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
         // Limitless
         Bukkit.getPluginManager().registerEvents(new LimitlessListener(this, limitlessManager), this);
+
+        // Blood Manipulation
+        Bukkit.getPluginManager().registerEvents(new BloodManipulationListener(this, bloodManipulationManager), this);
 
         // ===== Commands =====
         this.commandRouter = new CommandRouter(this);
@@ -324,6 +333,15 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /deadlysentencing is missing from plugin.yml");
         }
 
+        // Blood Manipulation command
+        if (getCommand("bloodmanip") != null) {
+            CmdBloodManip bmCmd = new CmdBloodManip(this);
+            getCommand("bloodmanip").setExecutor(bmCmd);
+            getCommand("bloodmanip").setTabCompleter(bmCmd);
+        } else {
+            getLogger().warning("Command /bloodmanip is missing from plugin.yml");
+        }
+
         // Six Eyes trait command
         if (getCommand("sixtrait") != null) {
             CmdSixTrait sixTraitCmd = new CmdSixTrait(this);
@@ -414,6 +432,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     public LimitlessManager limitless() { return limitlessManager; }
     public SixEyesTrait sixEyes() { return sixEyesTrait; }
     public DeadlySentencingManager deadlySentencing() { return deadlySentencingManager; }
+    public BloodManipulationManager bloodManip() { return bloodManipulationManager; }
 
     public void reloadAll() {
         configManager.load();
@@ -436,5 +455,6 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         techniqueRegistry.register(new DeadlySentencingTechnique(this));
         techniqueRegistry.register(new JacobsLadderTechnique(this));
         techniqueRegistry.register(new CurseManipulationTechnique(this));
+        techniqueRegistry.register(new BloodManipulationTechnique(this));
     }
 }
