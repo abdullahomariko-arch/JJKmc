@@ -118,6 +118,7 @@ public final class CullingGamesManager {
             return;
         }
         playerPoints.merge(uuid, -100, Integer::sum);
+        // getStringList always returns a non-null empty list if the key is absent
         List<String> rules = config.getStringList("rules");
         rules.add(p.getName() + ": " + rule);
         config.set("rules", rules);
