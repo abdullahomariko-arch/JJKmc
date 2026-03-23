@@ -93,6 +93,11 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     // ===== Deadly Sentencing =====
     private DeadlySentencingManager deadlySentencingManager;
 
+    // ===== Culling Games =====
+    private CullingGamesManager cullingGamesManager;
+    private KoganeEntity koganeEntity;
+    private CursedMobManager cursedMobManager;
+
     public static JJKCursedToolsPlugin get() {
         return instance;
     }
@@ -193,6 +198,11 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         // ===== Deadly Sentencing =====
         this.deadlySentencingManager = new DeadlySentencingManager(this);
 
+        // ===== Culling Games =====
+        this.cullingGamesManager = new CullingGamesManager(this);
+        this.koganeEntity = new KoganeEntity(this);
+        this.cursedMobManager = new CursedMobManager(this);
+
         // ===== Listeners =====
         Bukkit.getPluginManager().registerEvents(new PlayerLifecycleListener(this, playerDataStore, cursedEnergyManager, bossbarUI, actionbarUI), this);
         Bukkit.getPluginManager().registerEvents(new ToolUseListener(this, abilityService, cursedToolFactory), this);
@@ -225,6 +235,10 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
         // Blood Manipulation
         Bukkit.getPluginManager().registerEvents(new BloodManipulationListener(this, bloodManipulationManager), this);
+
+        // Culling Games
+        Bukkit.getPluginManager().registerEvents(new CullingGamesListener(this, cullingGamesManager, koganeEntity), this);
+        Bukkit.getPluginManager().registerEvents(cursedMobManager, this);
 
         // ===== Commands =====
         this.commandRouter = new CommandRouter(this);
@@ -351,6 +365,24 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /sixtrait is missing from plugin.yml");
         }
 
+        // Culling Games command
+        if (getCommand("cullinggames") != null) {
+            CullingGamesCommand cgCmd = new CullingGamesCommand(this);
+            getCommand("cullinggames").setExecutor(cgCmd);
+            getCommand("cullinggames").setTabCompleter(cgCmd);
+        } else {
+            getLogger().warning("Command /cullinggames is missing from plugin.yml");
+        }
+
+        // Points command
+        if (getCommand("points") != null) {
+            PointsCommand pointsCmd = new PointsCommand(this);
+            getCommand("points").setExecutor(pointsCmd);
+            getCommand("points").setTabCompleter(pointsCmd);
+        } else {
+            getLogger().warning("Command /points is missing from plugin.yml");
+        }
+
         actionbarUI.start();
         bossbarUI.start();
         cursedEnergyManager.startRegenTask();
@@ -433,6 +465,10 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     public SixEyesTrait sixEyes() { return sixEyesTrait; }
     public DeadlySentencingManager deadlySentencing() { return deadlySentencingManager; }
     public BloodManipulationManager bloodManip() { return bloodManipulationManager; }
+
+    public CullingGamesManager cullingGames() { return cullingGamesManager; }
+    public KoganeEntity kogane() { return koganeEntity; }
+    public CursedMobManager cursedMobs() { return cursedMobManager; }
 
     public void reloadAll() {
         configManager.load();
