@@ -70,9 +70,9 @@
       usage: "/deadlysentencing <barrage|slam|domain|status>"
 
     bloodmanip:
-      description: "Blood Manipulation Technique commands"
+      description: "Blood Manipulation technique commands"
       aliases: [bm]
-      usage: "/bloodmanip <supernova|explode|harpoon|piercing|givewomb>"
+      usage: "/bloodmanip <supernova|harpoon|piercing|explode|givewomb>"
 
     sixtrait:
       description: "Manage the Six Eyes trait"

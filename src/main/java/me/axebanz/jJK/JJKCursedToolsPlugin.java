@@ -90,6 +90,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     // ===== Blood Manipulation =====
     private BloodManipulationManager bloodManipulationManager;
 
+    // ===== Ice Formation =====
+    private IceFormationManager iceFormationManager;
+
     // ===== Deadly Sentencing =====
     private DeadlySentencingManager deadlySentencingManager;
 
@@ -198,6 +201,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         // ===== Blood Manipulation =====
         this.bloodManipulationManager = new BloodManipulationManager(this);
 
+        // ===== Ice Formation =====
+        this.iceFormationManager = new IceFormationManager(this);
+
         // ===== Deadly Sentencing =====
         this.deadlySentencingManager = new DeadlySentencingManager(this);
 
@@ -241,6 +247,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
         // Blood Manipulation
         Bukkit.getPluginManager().registerEvents(new BloodManipulationListener(this, bloodManipulationManager), this);
+
+        // Ice Formation
+        Bukkit.getPluginManager().registerEvents(new IceFormationListener(this, iceFormationManager), this);
 
         // Culling Games
         Bukkit.getPluginManager().registerEvents(new CullingGamesListener(this, cullingGamesManager, koganeEntity), this);
@@ -365,6 +374,15 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /bloodmanip is missing from plugin.yml");
         }
 
+        // Ice Formation command
+        if (getCommand("iceformation") != null) {
+            CmdIceFormation ifCmd = new CmdIceFormation(this);
+            getCommand("iceformation").setExecutor(ifCmd);
+            getCommand("iceformation").setTabCompleter(ifCmd);
+        } else {
+            getLogger().warning("Command /iceformation is missing from plugin.yml");
+        }
+
         // Six Eyes trait command
         if (getCommand("sixtrait") != null) {
             CmdSixTrait sixTraitCmd = new CmdSixTrait(this);
@@ -483,6 +501,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     public SixEyesTrait sixEyes() { return sixEyesTrait; }
     public DeadlySentencingManager deadlySentencing() { return deadlySentencingManager; }
     public BloodManipulationManager bloodManip() { return bloodManipulationManager; }
+    public IceFormationManager iceFormation() { return iceFormationManager; }
 
     public CullingGamesManager cullingGames() { return cullingGamesManager; }
     public KoganeEntity kogane() { return koganeEntity; }
