@@ -78,11 +78,20 @@
       description: "Manage the Six Eyes trait"
       usage: "/sixtrait <give|remove|check> <player>"
 
-  cullinggames:
-    description: "Culling Games system commands"
-    aliases: [cg]
-    usage: "/cullinggames <enter|teleport|addrule|info|setup>"
+    iceformation:
+      description: "Ice Formation technique commands"
+      aliases: [if]
+      usage: "/iceformation <frostcalm|frostcalmmax|icefall|status>"
 
-  points:
-    description: "Points system commands"
-    usage: "/points <give|check>"
+    contract:
+      description: "Contract system commands"
+      usage: "/contract <create>"
+
+    cullinggames:
+      description: "Culling Games system commands"
+      aliases: [cg]
+      usage: "/cullinggames <enter|teleport|addrule|info|setup>"
+
+    points:
+      description: "Points system commands"
+      usage: "/points <give|check>"

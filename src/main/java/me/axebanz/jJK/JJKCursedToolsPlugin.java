@@ -98,6 +98,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     private KoganeEntity koganeEntity;
     private CursedMobManager cursedMobManager;
 
+    // ===== Contracts =====
+    private ContractManager contractManager;
+
     public static JJKCursedToolsPlugin get() {
         return instance;
     }
@@ -203,6 +206,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         this.koganeEntity = new KoganeEntity(this);
         this.cursedMobManager = new CursedMobManager(this);
 
+        // ===== Contracts =====
+        this.contractManager = new ContractManager(this);
+
         // ===== Listeners =====
         Bukkit.getPluginManager().registerEvents(new PlayerLifecycleListener(this, playerDataStore, cursedEnergyManager, bossbarUI, actionbarUI), this);
         Bukkit.getPluginManager().registerEvents(new ToolUseListener(this, abilityService, cursedToolFactory), this);
@@ -239,6 +245,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         // Culling Games
         Bukkit.getPluginManager().registerEvents(new CullingGamesListener(this, cullingGamesManager, koganeEntity), this);
         Bukkit.getPluginManager().registerEvents(cursedMobManager, this);
+
+        // Cursed Seal
+        Bukkit.getPluginManager().registerEvents(new CursedSealItem(this), this);
 
         // ===== Commands =====
         this.commandRouter = new CommandRouter(this);
@@ -383,6 +392,15 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /points is missing from plugin.yml");
         }
 
+        // Contract command
+        if (getCommand("contract") != null) {
+            ContractCommand contractCmd = new ContractCommand(this);
+            getCommand("contract").setExecutor(contractCmd);
+            getCommand("contract").setTabCompleter(contractCmd);
+        } else {
+            getLogger().warning("Command /contract is missing from plugin.yml");
+        }
+
         actionbarUI.start();
         bossbarUI.start();
         cursedEnergyManager.startRegenTask();
@@ -470,6 +488,8 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     public KoganeEntity kogane() { return koganeEntity; }
     public CursedMobManager cursedMobs() { return cursedMobManager; }
 
+    public ContractManager contracts() { return contractManager; }
+
     public void reloadAll() {
         configManager.load();
         if (globalDataStore != null) globalDataStore.reload();
@@ -492,5 +512,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         techniqueRegistry.register(new JacobsLadderTechnique(this));
         techniqueRegistry.register(new CurseManipulationTechnique(this));
         techniqueRegistry.register(new BloodManipulationTechnique(this));
+        techniqueRegistry.register(new IceFormationTechnique(this));
+        techniqueRegistry.register(new GraniteBlastTechnique());
+        techniqueRegistry.register(new ThinIcebreakerTechnique());
+        techniqueRegistry.register(new ContractualContractsTechnique());
     }
 }
