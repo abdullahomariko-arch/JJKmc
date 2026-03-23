@@ -60,7 +60,7 @@ public final class CursedMobManager implements Listener {
         creeper.setPowered(true);
         creeper.setExplosionRadius(5);
 
-        AttributeInstance maxHp = creeper.getAttribute(Attribute.MAX_HEALTH);
+        AttributeInstance maxHp = creeper.getAttribute(Attribute.GENERIC_MAX_HEALTH);
         if (maxHp != null) {
             maxHp.setBaseValue(40.0);
             creeper.setHealth(40.0);
@@ -74,16 +74,16 @@ public final class CursedMobManager implements Listener {
         zombie.setCustomName("§4§lCursed Zombie");
         zombie.setCustomNameVisible(true);
 
-        AttributeInstance maxHp = zombie.getAttribute(Attribute.MAX_HEALTH);
+        AttributeInstance maxHp = zombie.getAttribute(Attribute.GENERIC_MAX_HEALTH);
         if (maxHp != null) {
             maxHp.setBaseValue(50.0);
             zombie.setHealth(50.0);
         }
 
-        AttributeInstance speed = zombie.getAttribute(Attribute.MOVEMENT_SPEED);
+        AttributeInstance speed = zombie.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED);
         if (speed != null) speed.setBaseValue(0.35);
 
-        AttributeInstance attack = zombie.getAttribute(Attribute.ATTACK_DAMAGE);
+        AttributeInstance attack = zombie.getAttribute(Attribute.GENERIC_ATTACK_DAMAGE);
         if (attack != null) attack.setBaseValue(8.0);
 
         zombie.getPersistentDataContainer().set(cursedKey, PersistentDataType.BYTE, (byte) 1);

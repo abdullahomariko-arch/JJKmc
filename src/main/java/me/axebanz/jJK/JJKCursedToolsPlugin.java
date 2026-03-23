@@ -249,7 +249,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new BloodManipulationListener(this, bloodManipulationManager), this);
 
         // Ice Formation
-        Bukkit.getPluginManager().registerEvents(new IceFormationListener(this, iceFormationManager), this);
+        // IceFormationListener has no handlers yet; cleanup is handled internally by IceFormationManager.
 
         // Culling Games
         Bukkit.getPluginManager().registerEvents(new CullingGamesListener(this, cullingGamesManager, koganeEntity), this);
