@@ -69,6 +69,29 @@
       aliases: [ds]
       usage: "/deadlysentencing <barrage|slam|domain|status>"
 
+    bloodmanip:
+      description: "Blood Manipulation technique commands"
+      aliases: [bm]
+      usage: "/bloodmanip <supernova|harpoon|piercing|explode|givewomb>"
+
     sixtrait:
       description: "Manage the Six Eyes trait"
       usage: "/sixtrait <give|remove|check> <player>"
+
+    iceformation:
+      description: "Ice Formation technique commands"
+      aliases: [if]
+      usage: "/iceformation <frostcalm|frostcalmmax|icefall|status>"
+
+    contract:
+      description: "Contract system commands"
+      usage: "/contract <create>"
+
+    cullinggames:
+      description: "Culling Games system commands"
+      aliases: [cg]
+      usage: "/cullinggames <enter|teleport|addrule|info|setup>"
+
+    points:
+      description: "Points system commands"
+      usage: "/points <give|check>"

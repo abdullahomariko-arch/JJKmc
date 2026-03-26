@@ -3,6 +3,8 @@ package me.axebanz.jJK;
 import org.bukkit.*;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
@@ -219,5 +221,47 @@ public final class DeadlySentencingManager {
             double z = Math.sin(a) * radius;
             world.spawnParticle(Particle.DUST, center.clone().add(x, 0.2, z), 1, 0, 0, 0, 0, opts);
         }
+    }
+
+    // ===== CUSTOM ITEMS =====
+
+    public static ItemStack createJudgesHammer() {
+        ItemStack item = new ItemStack(Material.IRON_AXE);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName("§6§lJudge's Hammer");
+            meta.setCustomModelData(1001);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    public static ItemStack createExecutionerSword() {
+        ItemStack item = new ItemStack(Material.NETHERITE_SWORD);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName("§4§lExecutioner's Sword");
+            meta.setCustomModelData(1002);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    public static boolean isJudgesHammer(ItemStack item) {
+        if (item == null || item.getType() != Material.IRON_AXE) return false;
+        ItemMeta meta = item.getItemMeta();
+        return meta != null && meta.hasCustomModelData() && meta.getCustomModelData() == 1001;
+    }
+
+    public static boolean isExecutionerSword(ItemStack item) {
+        if (item == null || item.getType() != Material.NETHERITE_SWORD) return false;
+        ItemMeta meta = item.getItemMeta();
+        return meta != null && meta.hasCustomModelData() && meta.getCustomModelData() == 1002;
+    }
+
+    public void giveWeapons(Player p) {
+        p.getInventory().addItem(createJudgesHammer());
+        p.getInventory().addItem(createExecutionerSword());
+        p.sendMessage(plugin.cfg().prefix() + "§6Judge's Hammer §7and §4Executioner's Sword §7given!");
     }
 }

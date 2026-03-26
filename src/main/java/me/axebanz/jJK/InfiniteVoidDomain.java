@@ -27,24 +27,37 @@ public final class InfiniteVoidDomain extends DomainExpansion {
         World w = center.getWorld();
         if (w == null) return;
 
-        Particle.DustOptions blue = new Particle.DustOptions(Color.fromRGB(0, 0, 80), 2.0f);
-        Particle.DustOptions purple = new Particle.DustOptions(Color.fromRGB(40, 0, 100), 2.0f);
+        // Place end portal floor with barrier support
+        int cx = center.getBlockX();
+        int cy = center.getBlockY() - 1; // floor level
+        int cz = center.getBlockZ();
+        int floorRadius = RADIUS - 2;
 
-        // Spawn dense interior particles
-        for (int i = 0; i < 200; i++) {
-            double r = RADIUS * Math.random();
-            double theta = Math.random() * Math.PI * 2;
-            double phi = Math.random() * Math.PI;
-            double x = r * Math.sin(phi) * Math.cos(theta);
-            double y = r * Math.cos(phi);
-            double z = r * Math.sin(phi) * Math.sin(theta);
-            Location loc = center.clone().add(x, y, z);
-            w.spawnParticle(Particle.DUST, loc, 1, 0, 0, 0, 0, i % 2 == 0 ? blue : purple);
-            w.spawnParticle(Particle.END_ROD, loc, 1, 0.5, 0.5, 0.5, 0.01);
+        for (int x = cx - floorRadius; x <= cx + floorRadius; x++) {
+            for (int z = cz - floorRadius; z <= cz + floorRadius; z++) {
+                double dist = Math.sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz));
+                if (dist <= floorRadius) {
+                    Location floorLoc = new Location(w, x, cy, z);
+                    Location barrierLoc = new Location(w, x, cy - 1, z);
+
+                    // Save originals before overwriting
+                    if (!savedBlocks.containsKey(floorLoc)) savedBlocks.put(floorLoc, floorLoc.getBlock().getState());
+                    if (!savedBlocks.containsKey(barrierLoc)) savedBlocks.put(barrierLoc, barrierLoc.getBlock().getState());
+
+                    // Place BARRIER below, END_PORTAL on top
+                    barrierLoc.getBlock().setType(Material.BARRIER, false);
+                    floorLoc.getBlock().setType(Material.END_PORTAL, false);
+                }
+            }
         }
 
         w.playSound(center, Sound.BLOCK_END_PORTAL_SPAWN, 1.5f, 0.5f);
         w.playSound(center, Sound.AMBIENT_SOUL_SAND_VALLEY_ADDITIONS, 2.0f, 0.5f);
+
+        // Notify players inside
+        for (Player p : getPlayersInside()) {
+            p.sendMessage(plugin.cfg().prefix() + "§1§lINFINITE VOID §0— §7You cannot escape.");
+        }
     }
 
     @Override

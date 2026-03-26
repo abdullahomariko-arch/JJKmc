@@ -30,6 +30,9 @@ public final class PlayerLifecycleListener implements Listener {
         store.load(p.getUniqueId());
         ce.ensureInitialized(p.getUniqueId());
         bossbar.attachPlayer(p);
+        if (plugin.contracts() != null) {
+            plugin.contracts().handleNewPlayerJoin(p);
+        }
     }
 
     @EventHandler

@@ -87,8 +87,22 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     // ===== Six Eyes Trait =====
     private SixEyesTrait sixEyesTrait;
 
+    // ===== Blood Manipulation =====
+    private BloodManipulationManager bloodManipulationManager;
+
+    // ===== Ice Formation =====
+    private IceFormationManager iceFormationManager;
+
     // ===== Deadly Sentencing =====
     private DeadlySentencingManager deadlySentencingManager;
+
+    // ===== Culling Games =====
+    private CullingGamesManager cullingGamesManager;
+    private KoganeEntity koganeEntity;
+    private CursedMobManager cursedMobManager;
+
+    // ===== Contracts =====
+    private ContractManager contractManager;
 
     public static JJKCursedToolsPlugin get() {
         return instance;
@@ -184,8 +198,22 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         // ===== Limitless =====
         this.limitlessManager = new LimitlessManager(this);
 
+        // ===== Blood Manipulation =====
+        this.bloodManipulationManager = new BloodManipulationManager(this);
+
+        // ===== Ice Formation =====
+        this.iceFormationManager = new IceFormationManager(this);
+
         // ===== Deadly Sentencing =====
         this.deadlySentencingManager = new DeadlySentencingManager(this);
+
+        // ===== Culling Games =====
+        this.cullingGamesManager = new CullingGamesManager(this);
+        this.koganeEntity = new KoganeEntity(this);
+        this.cursedMobManager = new CursedMobManager(this);
+
+        // ===== Contracts =====
+        this.contractManager = new ContractManager(this);
 
         // ===== Listeners =====
         Bukkit.getPluginManager().registerEvents(new PlayerLifecycleListener(this, playerDataStore, cursedEnergyManager, bossbarUI, actionbarUI), this);
@@ -216,6 +244,19 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
         // Limitless
         Bukkit.getPluginManager().registerEvents(new LimitlessListener(this, limitlessManager), this);
+
+        // Blood Manipulation
+        Bukkit.getPluginManager().registerEvents(new BloodManipulationListener(this, bloodManipulationManager), this);
+
+        // Ice Formation
+        // IceFormationListener has no handlers yet; cleanup is handled internally by IceFormationManager.
+
+        // Culling Games
+        Bukkit.getPluginManager().registerEvents(new CullingGamesListener(this, cullingGamesManager, koganeEntity), this);
+        Bukkit.getPluginManager().registerEvents(cursedMobManager, this);
+
+        // Cursed Seal
+        Bukkit.getPluginManager().registerEvents(new CursedSealItem(this), this);
 
         // ===== Commands =====
         this.commandRouter = new CommandRouter(this);
@@ -324,6 +365,24 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /deadlysentencing is missing from plugin.yml");
         }
 
+        // Blood Manipulation command
+        if (getCommand("bloodmanip") != null) {
+            CmdBloodManip bmCmd = new CmdBloodManip(this);
+            getCommand("bloodmanip").setExecutor(bmCmd);
+            getCommand("bloodmanip").setTabCompleter(bmCmd);
+        } else {
+            getLogger().warning("Command /bloodmanip is missing from plugin.yml");
+        }
+
+        // Ice Formation command
+        if (getCommand("iceformation") != null) {
+            CmdIceFormation ifCmd = new CmdIceFormation(this);
+            getCommand("iceformation").setExecutor(ifCmd);
+            getCommand("iceformation").setTabCompleter(ifCmd);
+        } else {
+            getLogger().warning("Command /iceformation is missing from plugin.yml");
+        }
+
         // Six Eyes trait command
         if (getCommand("sixtrait") != null) {
             CmdSixTrait sixTraitCmd = new CmdSixTrait(this);
@@ -331,6 +390,33 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getCommand("sixtrait").setTabCompleter(sixTraitCmd);
         } else {
             getLogger().warning("Command /sixtrait is missing from plugin.yml");
+        }
+
+        // Culling Games command
+        if (getCommand("cullinggames") != null) {
+            CullingGamesCommand cgCmd = new CullingGamesCommand(this);
+            getCommand("cullinggames").setExecutor(cgCmd);
+            getCommand("cullinggames").setTabCompleter(cgCmd);
+        } else {
+            getLogger().warning("Command /cullinggames is missing from plugin.yml");
+        }
+
+        // Points command
+        if (getCommand("points") != null) {
+            PointsCommand pointsCmd = new PointsCommand(this);
+            getCommand("points").setExecutor(pointsCmd);
+            getCommand("points").setTabCompleter(pointsCmd);
+        } else {
+            getLogger().warning("Command /points is missing from plugin.yml");
+        }
+
+        // Contract command
+        if (getCommand("contract") != null) {
+            ContractCommand contractCmd = new ContractCommand(this);
+            getCommand("contract").setExecutor(contractCmd);
+            getCommand("contract").setTabCompleter(contractCmd);
+        } else {
+            getLogger().warning("Command /contract is missing from plugin.yml");
         }
 
         actionbarUI.start();
@@ -414,6 +500,14 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     public LimitlessManager limitless() { return limitlessManager; }
     public SixEyesTrait sixEyes() { return sixEyesTrait; }
     public DeadlySentencingManager deadlySentencing() { return deadlySentencingManager; }
+    public BloodManipulationManager bloodManip() { return bloodManipulationManager; }
+    public IceFormationManager iceFormation() { return iceFormationManager; }
+
+    public CullingGamesManager cullingGames() { return cullingGamesManager; }
+    public KoganeEntity kogane() { return koganeEntity; }
+    public CursedMobManager cursedMobs() { return cursedMobManager; }
+
+    public ContractManager contracts() { return contractManager; }
 
     public void reloadAll() {
         configManager.load();
@@ -436,5 +530,10 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         techniqueRegistry.register(new DeadlySentencingTechnique(this));
         techniqueRegistry.register(new JacobsLadderTechnique(this));
         techniqueRegistry.register(new CurseManipulationTechnique(this));
+        techniqueRegistry.register(new BloodManipulationTechnique(this));
+        techniqueRegistry.register(new IceFormationTechnique(this));
+        techniqueRegistry.register(new GraniteBlastTechnique());
+        techniqueRegistry.register(new ThinIcebreakerTechnique());
+        techniqueRegistry.register(new ContractualContractsTechnique());
     }
 }
