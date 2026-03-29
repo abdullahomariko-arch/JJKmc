@@ -93,6 +93,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     // ===== Ice Formation =====
     private IceFormationManager iceFormationManager;
 
+    // ===== Energy Discharge =====
+    private EnergyDischargeManager energyDischargeManager;
+
     // ===== Deadly Sentencing =====
     private DeadlySentencingManager deadlySentencingManager;
 
@@ -204,6 +207,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         // ===== Ice Formation =====
         this.iceFormationManager = new IceFormationManager(this);
 
+        // ===== Energy Discharge =====
+        this.energyDischargeManager = new EnergyDischargeManager(this);
+
         // ===== Deadly Sentencing =====
         this.deadlySentencingManager = new DeadlySentencingManager(this);
 
@@ -250,6 +256,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
         // Ice Formation
         // IceFormationListener has no handlers yet; cleanup is handled internally by IceFormationManager.
+
+        // Energy Discharge
+        Bukkit.getPluginManager().registerEvents(new EnergyDischargeListener(this), this);
 
         // Culling Games
         Bukkit.getPluginManager().registerEvents(new CullingGamesListener(this, cullingGamesManager, koganeEntity), this);
@@ -383,6 +392,15 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
             getLogger().warning("Command /iceformation is missing from plugin.yml");
         }
 
+        // Energy Discharge command
+        if (getCommand("energydischarge") != null) {
+            CmdEnergyDischarge edCmd = new CmdEnergyDischarge(this);
+            getCommand("energydischarge").setExecutor(edCmd);
+            getCommand("energydischarge").setTabCompleter(edCmd);
+        } else {
+            getLogger().warning("Command /energydischarge is missing from plugin.yml");
+        }
+
         // Six Eyes trait command
         if (getCommand("sixtrait") != null) {
             CmdSixTrait sixTraitCmd = new CmdSixTrait(this);
@@ -502,6 +520,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     public DeadlySentencingManager deadlySentencing() { return deadlySentencingManager; }
     public BloodManipulationManager bloodManip() { return bloodManipulationManager; }
     public IceFormationManager iceFormation() { return iceFormationManager; }
+    public EnergyDischargeManager energyDischarge() { return energyDischargeManager; }
 
     public CullingGamesManager cullingGames() { return cullingGamesManager; }
     public KoganeEntity kogane() { return koganeEntity; }
@@ -532,7 +551,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         techniqueRegistry.register(new CurseManipulationTechnique(this));
         techniqueRegistry.register(new BloodManipulationTechnique(this));
         techniqueRegistry.register(new IceFormationTechnique(this));
-        techniqueRegistry.register(new GraniteBlastTechnique());
+        techniqueRegistry.register(new EnergyDischargeTechnique(this));
         techniqueRegistry.register(new ThinIcebreakerTechnique());
         techniqueRegistry.register(new ContractualContractsTechnique());
     }

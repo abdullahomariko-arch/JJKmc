@@ -157,10 +157,9 @@ public final class CursedEnergyManager {
                 return plugin.copy().ceMaxFor(uuid);
             }
         }
-        if (plugin.projectionManager() != null) {
-            String techId = plugin.techniqueManager().getAssignedId(uuid);
-            if ("projection".equalsIgnoreCase(techId)) return 20;
-        }
+        String techId = plugin.techniqueManager().getAssignedId(uuid);
+        if (plugin.projectionManager() != null && "projection".equalsIgnoreCase(techId)) return 20;
+        if ("energy_discharge".equalsIgnoreCase(techId)) return 200;
         return plugin.cfg().ceMax();
     }
 

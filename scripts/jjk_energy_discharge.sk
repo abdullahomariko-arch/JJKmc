@@ -1,0 +1,28 @@
+# JJKmc Energy Discharge — Skript Visual Hooks
+# Copy this file to plugins/Skript/scripts/ on your server
+# Requires: Skript + SkBee
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VISUAL HOOK: jjk_visual energy_discharge_hit <player> <world> <x> <y> <z>
+#
+# Called when an Energy Discharge passive strike hits a target.
+# Replace the placeholder below with your custom particle effects.
+# ─────────────────────────────────────────────────────────────────────────────
+on command "jjk_visual":
+    # Placeholder — add your visual logic here
+    # Example: spawn blue particles at the target location
+    # set {_world} to argument 3
+    # set {_x} to argument 4 parsed as number
+    # set {_y} to argument 5 parsed as number
+    # set {_z} to argument 6 parsed as number
+    # spawn 10 dust particles using dustOption(blue, 1.5) at location({_x}, {_y}, {_z}, world({_world}))
+    stop
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXAMPLE: Beam hit particle burst
+# Uncomment and customize the block below to add a beam hit effect
+# ─────────────────────────────────────────────────────────────────────────────
+# on command "jjk_visual energy_discharge_beam_hit *":
+#     set {_player} to player named arg-2
+#     broadcast "§b⚡ Energy Discharge beam hit by %{_player}%!" to {_player}
+#     stop

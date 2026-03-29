@@ -4,6 +4,7 @@
   version: 1.0
   api-version: "1.21"
   depend: [ModelEngine]
+  softdepend: [Skript, SkBee]
 
   commands:
     jjk:
@@ -82,6 +83,11 @@
       description: "Ice Formation technique commands"
       aliases: [if]
       usage: "/iceformation <frostcalm|frostcalmmax|icefall|status>"
+
+    energydischarge:
+      description: "Energy Discharge technique commands"
+      aliases: [ed]
+      usage: "/energydischarge <tracking|blast|info>"
 
     contract:
       description: "Contract system commands"
