@@ -38,7 +38,7 @@ public final class BossbarUI {
 
     public void attachPlayer(Player p) {
         if (plugin.cfg().ceBossbarEnabled()) {
-            ceBars.computeIfAbsent(p.getUniqueId(), k -> Bukkit.createBossBar("", BarColor.PURPLE, BarStyle.SEGMENTED_20))
+            ceBars.computeIfAbsent(p.getUniqueId(), k -> Bukkit.createBossBar("", BarColor.BLUE, BarStyle.SEGMENTED_20))
                     .addPlayer(p);
         }
     }
@@ -58,7 +58,7 @@ public final class BossbarUI {
     private void updateCeBar(Player p) {
         if (!plugin.cfg().ceBossbarEnabled()) return;
 
-        BossBar bar = ceBars.computeIfAbsent(p.getUniqueId(), k -> Bukkit.createBossBar("", BarColor.PURPLE, BarStyle.SEGMENTED_20));
+        BossBar bar = ceBars.computeIfAbsent(p.getUniqueId(), k -> Bukkit.createBossBar("", BarColor.BLUE, BarStyle.SEGMENTED_20));
         if (!bar.getPlayers().contains(p)) bar.addPlayer(p);
 
         int max = plugin.ce().max(p.getUniqueId());
@@ -70,13 +70,11 @@ public final class BossbarUI {
         int filledSegments = (int) Math.round(pct * segments);
 
         boolean copyActive = plugin.copy() != null && plugin.copy().canUseCopy(p);
-        boolean projectionActive = plugin.projectionManager() != null
-                && "projection".equalsIgnoreCase(plugin.techniqueManager().getAssignedId(p.getUniqueId()));
 
         String filled = plugin.cfg().c().getString("ui.cursedEnergyBossbar.filledChar", "■");
         String empty = plugin.cfg().c().getString("ui.cursedEnergyBossbar.emptyChar", "□");
 
-        String colorCode = projectionActive ? "§9" : (copyActive ? "§d" : "§d");
+        String colorCode = copyActive ? "§d" : "§b";
 
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < segments; i++) {
@@ -93,7 +91,7 @@ public final class BossbarUI {
 
         bar.setStyle(BarStyle.SEGMENTED_20);
         bar.setProgress(Math.max(0.0, Math.min(1.0, pct)));
-        BarColor barColor = projectionActive ? BarColor.BLUE : (copyActive ? BarColor.PINK : BarColor.PURPLE);
+        BarColor barColor = copyActive ? BarColor.PINK : BarColor.BLUE;
         bar.setColor(barColor);
         bar.setVisible(true);
     }

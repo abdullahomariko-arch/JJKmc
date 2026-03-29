@@ -79,5 +79,19 @@
             <scope>system</scope>
             <systemPath>${project.basedir}/libs/BetterModel-2.2.0-paper.jar</systemPath>
         </dependency>
+        <dependency>
+            <groupId>ch.njol</groupId>
+            <artifactId>skript</artifactId>
+            <version>2.14.2</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libs/Skript-2.14.2.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.shanebeestudios</groupId>
+            <artifactId>skbee</artifactId>
+            <version>3.18.2</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libs/SkBee-3.18.2.jar</systemPath>
+        </dependency>
     </dependencies>
 </project>
