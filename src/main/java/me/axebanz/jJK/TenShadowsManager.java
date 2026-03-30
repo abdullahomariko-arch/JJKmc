@@ -474,7 +474,7 @@ public final class TenShadowsManager {
         return whiteRabbit.getUniqueId().toString();
     }
 
-
+    private LivingEntity spawnMobShikigami(Player owner, ShikigamiType type, Location loc, boolean hostile) {
         EntityType entityType = getBaseEntityType(type);
         LivingEntity entity = (LivingEntity) loc.getWorld().spawnEntity(loc, entityType);
 
@@ -675,6 +675,7 @@ public final class TenShadowsManager {
             prof.ritualEntityUuid = instance.entityUuid().toString();
             prof.armorStandHealth = type.maxHealth();
             prof.armorStandMaxHealth = type.maxHealth();
+            ritualInstances.put(u, instance);
         } else {
             // Normal mob ritual
             LivingEntity entity = spawnMobShikigami(p, type, spawnLoc, true);
@@ -684,6 +685,9 @@ public final class TenShadowsManager {
                 return;
             }
             prof.ritualEntityUuid = entity.getUniqueId().toString();
+            ShikigamiInstance ritualInst = new ShikigamiInstance(type, u);
+            ritualInst.setEntityUuid(entity.getUniqueId());
+            ritualInstances.put(u, ritualInst);
         }
 
         prof.ritualActive = true;
