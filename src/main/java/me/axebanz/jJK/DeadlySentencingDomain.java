@@ -45,11 +45,11 @@ public final class DeadlySentencingDomain extends DomainExpansion implements Lis
         int innerR = RADIUS - COURTROOM_FLOOR_INSET;   // courtroom floor radius
         int innerR2 = innerR * innerR;
 
-        // ── 1. IDG-style white concrete shell (replaces barrier blocks) ──
+        // ── 1. IDG-style black glass shell (replaces barrier blocks) ──
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!active) return;
             for (Location loc : barrierBlocks) {
-                loc.getBlock().setType(Material.WHITE_CONCRETE, false);
+                loc.getBlock().setType(Material.BLACK_STAINED_GLASS, false);
             }
         }, 2L);
 

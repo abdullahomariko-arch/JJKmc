@@ -87,6 +87,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
     // ===== Six Eyes Trait =====
     private SixEyesTrait sixEyesTrait;
 
+    // ===== Keybind System =====
+    private KeybindManager keybindManager;
+
     // ===== Blood Manipulation =====
     private BloodManipulationManager bloodManipulationManager;
 
@@ -201,6 +204,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
         // ===== Limitless =====
         this.limitlessManager = new LimitlessManager(this);
 
+        // ===== Keybind System =====
+        this.keybindManager = new KeybindManager(this);
+
         // ===== Blood Manipulation =====
         this.bloodManipulationManager = new BloodManipulationManager(this);
 
@@ -250,6 +256,9 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
         // Limitless
         Bukkit.getPluginManager().registerEvents(new LimitlessListener(this, limitlessManager), this);
+
+        // Keybind System
+        Bukkit.getPluginManager().registerEvents(new KeybindListener(this, keybindManager), this);
 
         // Blood Manipulation
         Bukkit.getPluginManager().registerEvents(new BloodManipulationListener(this, bloodManipulationManager), this);
@@ -517,6 +526,7 @@ public final class JJKCursedToolsPlugin extends JavaPlugin {
 
     public LimitlessManager limitless() { return limitlessManager; }
     public SixEyesTrait sixEyes() { return sixEyesTrait; }
+    public KeybindManager keybindManager() { return keybindManager; }
     public DeadlySentencingManager deadlySentencing() { return deadlySentencingManager; }
     public BloodManipulationManager bloodManip() { return bloodManipulationManager; }
     public IceFormationManager iceFormation() { return iceFormationManager; }
