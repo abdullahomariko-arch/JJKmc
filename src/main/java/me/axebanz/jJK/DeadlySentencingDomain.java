@@ -76,11 +76,10 @@ public final class DeadlySentencingDomain extends DomainExpansion implements Lis
         int railZ1 = cz + 8;
         int railZ2 = cz - 8;
         int railR  = innerR - 2;
-        int railR2 = innerR2; // fence posts stay within the floor area
         for (int x = cx - railR; x <= cx + railR; x++) {
             for (int railZ : new int[]{railZ1, railZ2}) {
                 int dx = x - cx, dz = railZ - cz;
-                if (dx * dx + dz * dz <= railR2) {
+                if (dx * dx + dz * dz <= innerR2) {
                     Location fenceLoc = new Location(w, x, floorY, railZ);
                     if (!savedBlocks.containsKey(fenceLoc))
                         savedBlocks.put(fenceLoc, fenceLoc.getBlock().getState());
@@ -95,7 +94,7 @@ public final class DeadlySentencingDomain extends DomainExpansion implements Lis
             savedBlocks.put(lecternLoc, lecternLoc.getBlock().getState());
         lecternLoc.getBlock().setType(Material.LECTERN, false);
 
-        // ── 5. Lanterns for lighting (ring at mid-height above floor) ──
+        // ── 5. Lanterns for lighting: center, four cardinal points, and four diagonals ──
         int lanternY = floorY + 4;
         int[][] lanternOffsets = {{0, 0}, {8, 0}, {-8, 0}, {0, 8}, {0, -8}, {6, 6}, {-6, 6}, {6, -6}, {-6, -6}};
         for (int[] off : lanternOffsets) {
