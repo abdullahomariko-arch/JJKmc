@@ -52,10 +52,11 @@ public final class KeybindListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onSwapHand(PlayerSwapHandItemsEvent e) {
         Player p = e.getPlayer();
-        KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "F");
-        if (result == null) return;
+        String ability = keybindManager.onKeyPress(p, "F");
+        if (ability == null) return;
         e.setCancelled(true);
-        executeAbility(p, result.ability, result.maxOutput);
+        KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "F");
+        if (result != null) executeAbility(p, result.ability, result.maxOutput);
     }
 
     // ───────────────────────── Q Key ─────────────────────────
@@ -63,21 +64,28 @@ public final class KeybindListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDropItem(PlayerDropItemEvent e) {
         Player p = e.getPlayer();
-        KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "Q");
-        if (result == null) return;
+        String ability = keybindManager.onKeyPress(p, "Q");
+        if (ability == null) return;
         e.setCancelled(true);
-        executeAbility(p, result.ability, result.maxOutput);
+        KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "Q");
+        if (result != null) executeAbility(p, result.ability, result.maxOutput);
     }
 
     // ───────────────────────── SHIFT Key ─────────────────────────
+    // SHIFT supports hold detection: sneak-start registers the press time,
+    // sneak-end fires the ability (with max-output if held 2+ seconds).
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onSneak(PlayerToggleSneakEvent e) {
-        if (!e.isSneaking()) return; // only trigger on sneak START
         Player p = e.getPlayer();
-        KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "SHIFT");
-        if (result == null) return;
-        executeAbility(p, result.ability, result.maxOutput);
+        if (e.isSneaking()) {
+            // Sneak START — register hold time
+            keybindManager.onKeyPress(p, "SHIFT");
+        } else {
+            // Sneak END — fire ability, max-output if held 2+ seconds
+            KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "SHIFT");
+            if (result != null) executeAbility(p, result.ability, result.maxOutput);
+        }
     }
 
     // ───────────────────────── Right / Left Click ─────────────────────────
@@ -95,15 +103,13 @@ public final class KeybindListener implements Listener {
         if (inHand != Material.AIR) return;
 
         if (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) {
+            keybindManager.onKeyPress(p, "RIGHT_CLICK");
             KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "RIGHT_CLICK");
-            if (result != null) {
-                executeAbility(p, result.ability, result.maxOutput);
-            }
+            if (result != null) executeAbility(p, result.ability, result.maxOutput);
         } else if (action == Action.LEFT_CLICK_AIR || action == Action.LEFT_CLICK_BLOCK) {
+            keybindManager.onKeyPress(p, "LEFT_CLICK");
             KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "LEFT_CLICK");
-            if (result != null) {
-                executeAbility(p, result.ability, result.maxOutput);
-            }
+            if (result != null) executeAbility(p, result.ability, result.maxOutput);
         }
     }
 

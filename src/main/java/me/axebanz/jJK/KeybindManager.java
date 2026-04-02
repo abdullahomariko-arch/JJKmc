@@ -29,6 +29,9 @@ public final class KeybindManager {
     /** UI-Switching: tracks when a player started "holding" a press for an ability key */
     private final Map<UUID, Map<String, Long>> holdStart = new ConcurrentHashMap<>();
 
+    /** Milliseconds a key must be held to trigger Maximum Output mode. */
+    public static final long MAX_OUTPUT_HOLD_THRESHOLD_MS = 2000L;
+
     public KeybindManager(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
         this.pdcKey = new NamespacedKey(plugin, "jjk_keybinds");
@@ -109,7 +112,7 @@ public final class KeybindManager {
         if (start == null) return new KeypressResult(ability, false);
 
         long elapsed = System.currentTimeMillis() - start;
-        boolean maxOutput = elapsed >= 2000L;
+        boolean maxOutput = elapsed >= MAX_OUTPUT_HOLD_THRESHOLD_MS;
         return new KeypressResult(ability, maxOutput);
     }
 
