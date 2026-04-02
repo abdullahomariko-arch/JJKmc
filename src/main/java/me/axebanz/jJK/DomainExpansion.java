@@ -43,6 +43,16 @@ public abstract class DomainExpansion {
     public double getRefinement() { return refinement; }
 
     /**
+     * Returns the effective radius accounting for CE level scaling.
+     * Formula: baseRadius + (ceLevel / 10)
+     * At CE level 50 the domain is 5 blocks bigger than base.
+     */
+    public int getEffectiveRadius() {
+        int ceLevel = plugin.ce().getCeLevel(caster.getUniqueId());
+        return getRadius() + (ceLevel / 10);
+    }
+
+    /**
      * How many ticks between each expansion step.
      * Override in subclasses for faster/slower growth.
      * Default: 3 ticks per shell layer (~0.15s per layer).
@@ -56,7 +66,7 @@ public abstract class DomainExpansion {
         active = true;
         fullyExpanded = false;
 
-        int totalRadius = getRadius();
+        int totalRadius = getEffectiveRadius();
         int tickDelay = getExpansionTickDelay();
 
         // Phase 1: Animate the barrier growing outward shell by shell
@@ -134,7 +144,7 @@ public abstract class DomainExpansion {
     public boolean isInside(Location loc) {
         if (loc.getWorld() == null || center.getWorld() == null) return false;
         if (!loc.getWorld().equals(center.getWorld())) return false;
-        return loc.distanceSquared(center) <= (double) getRadius() * getRadius();
+        return loc.distanceSquared(center) <= (double) getEffectiveRadius() * getEffectiveRadius();
     }
 
     public Set<Player> getPlayersInside() {

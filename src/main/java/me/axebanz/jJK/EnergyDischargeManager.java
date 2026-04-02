@@ -4,8 +4,12 @@ import org.bukkit.*;
 import org.bukkit.entity.*;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -355,6 +359,7 @@ public final class EnergyDischargeManager {
         double halfWidth = phase == 1 ? 0.5 : (phase == 2 ? 1.0 : 2.0);
 
         launchGraniteBlastBeam(p, phase, range, damagePerSec, durationSecs, halfWidth);
+        spawnBeamVisual(p, phase, range, durationSecs * 20);
     }
 
     private void launchGraniteBlastBeam(Player p, int phase, double range, double damagePerSec, int durationSecs, double halfWidth) {
@@ -442,6 +447,85 @@ public final class EnergyDischargeManager {
         if (p != null && p.isOnline()) {
             p.sendActionBar("§b⚡ Granite Blast complete.");
         }
+    }
+
+    /**
+     * Spawns an ItemDisplay beam entity along the player's look direction.
+     * Scale Z = beam length, X/Y = thickness (phase-based).
+     * Traveling END_ROD particles run for the duration, then the display
+     * shrinks X and Y to 0 via interpolation (Red's disappear technique).
+     *
+     * @param p            the caster
+     * @param phase        1, 2, or 3
+     * @param maxRange     maximum beam length in blocks
+     * @param durationTicks how many ticks before the disappear animation starts
+     */
+    private void spawnBeamVisual(Player p, int phase, double maxRange, int durationTicks) {
+        Location eyeLoc = p.getEyeLocation();
+        Vector dir = eyeLoc.getDirection().normalize();
+        World world = p.getWorld();
+
+        // Raycast: find where beam hits a solid block
+        double beamLength = maxRange;
+        for (double d = 0.5; d <= maxRange; d += 0.5) {
+            Location step = eyeLoc.clone().add(dir.clone().multiply(d));
+            if (step.getBlock().getType().isSolid()) {
+                beamLength = d;
+                break;
+            }
+        }
+
+        // Spawn ItemDisplay at beam midpoint
+        Location midLoc = eyeLoc.clone().add(dir.clone().multiply(beamLength / 2.0));
+        float thickness = switch (phase) {
+            case 1 -> 0.8f;
+            case 2 -> 1.5f;
+            case 3 -> 3.0f;
+            default -> 1.0f; // fallback; only phases 1-3 are valid
+        };
+
+        ItemDisplay display = (ItemDisplay) world.spawnEntity(midLoc, EntityType.ITEM_DISPLAY);
+        display.setItemStack(new ItemStack(Material.BLAZE_ROD)); // placeholder until Nexo model
+        display.setRotation(eyeLoc.getYaw(), eyeLoc.getPitch());
+        display.setBrightness(new Display.Brightness(15, 15));
+        display.setTransformation(new Transformation(
+                new Vector3f(0f, 0f, 0f),
+                new Quaternionf(),
+                new Vector3f(thickness, thickness, (float) beamLength),
+                new Quaternionf()
+        ));
+
+        // Traveling END_ROD particles along the beam every 2 ticks (use fixed direction from beam creation)
+        final double finalBeamLength = beamLength;
+        final Location fixedEye = eyeLoc.clone();
+        final Vector fixedDir = dir.clone();
+        BukkitTask[] particleRef = {null};
+        particleRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!display.isValid()) {
+                particleRef[0].cancel();
+                return;
+            }
+            for (double d = 0; d <= finalBeamLength; d += 2.0) {
+                Location sparkLoc = fixedEye.clone().add(fixedDir.clone().multiply(d));
+                world.spawnParticle(Particle.END_ROD, sparkLoc, 0,
+                        fixedDir.getX() * 0.5, fixedDir.getY() * 0.5, fixedDir.getZ() * 0.5, 0.15);
+            }
+        }, 0L, 2L);
+
+        // After durationTicks: shrink X,Y to 0 (beam disappear animation)
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (particleRef[0] != null) particleRef[0].cancel();
+            if (!display.isValid()) return;
+            display.setInterpolationDuration(5);
+            display.setInterpolationDelay(0);
+            Transformation old = display.getTransformation();
+            display.setTransformation(new Transformation(
+                    old.getTranslation(), old.getLeftRotation(),
+                    new Vector3f(0f, 0f, old.getScale().z()),
+                    old.getRightRotation()
+            ));
+            Bukkit.getScheduler().runTaskLater(plugin, display::remove, 7L);
+        }, durationTicks);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

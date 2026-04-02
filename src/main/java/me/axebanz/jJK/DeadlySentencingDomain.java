@@ -18,6 +18,8 @@ import java.util.*;
 public final class DeadlySentencingDomain extends DomainExpansion implements Listener {
 
     private static final int RADIUS = 30;
+    /** How many blocks inside the outer shell the courtroom floor insets. */
+    private static final int COURTROOM_FLOOR_INSET = 3;
     private ArmorStand judgemanStand = null;
     private final List<BukkitTask> pendingTasks = new ArrayList<>();
     private final List<Player> defendants = new ArrayList<>();
@@ -35,7 +37,79 @@ public final class DeadlySentencingDomain extends DomainExpansion implements Lis
         World w = center.getWorld();
         if (w == null) return;
 
-        // Gold/yellow ambiance
+        int cx = center.getBlockX();
+        int cy = center.getBlockY();
+        int cz = center.getBlockZ();
+        int floorY = cy - 1;       // visible floor level (stone brick)
+        int barrierY = cy - 2;     // barrier below floor (void feel)
+        int innerR = RADIUS - COURTROOM_FLOOR_INSET;   // courtroom floor radius
+        int innerR2 = innerR * innerR;
+
+        // ── 1. IDG-style white concrete shell (replaces barrier blocks) ──
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!active) return;
+            for (Location loc : barrierBlocks) {
+                loc.getBlock().setType(Material.WHITE_CONCRETE, false);
+            }
+        }, 2L);
+
+        // ── 2. Barrier void floor + stone brick visible floor ──
+        for (int x = cx - innerR; x <= cx + innerR; x++) {
+            for (int z = cz - innerR; z <= cz + innerR; z++) {
+                int dx = x - cx, dz = z - cz;
+                if (dx * dx + dz * dz <= innerR2) {
+                    Location barrierLoc = new Location(w, x, barrierY, z);
+                    Location floorLoc   = new Location(w, x, floorY,   z);
+
+                    if (!savedBlocks.containsKey(barrierLoc))
+                        savedBlocks.put(barrierLoc, barrierLoc.getBlock().getState());
+                    if (!savedBlocks.containsKey(floorLoc))
+                        savedBlocks.put(floorLoc,   floorLoc.getBlock().getState());
+
+                    barrierLoc.getBlock().setType(Material.BARRIER,       false);
+                    floorLoc.getBlock().setType(Material.STONE_BRICKS,    false);
+                }
+            }
+        }
+
+        // ── 3. Dark oak fence railings (two parallel rows as courtroom bar) ──
+        int railZ1 = cz + 8;
+        int railZ2 = cz - 8;
+        int railR  = innerR - 2;
+        for (int x = cx - railR; x <= cx + railR; x++) {
+            for (int railZ : new int[]{railZ1, railZ2}) {
+                int dx = x - cx, dz = railZ - cz;
+                if (dx * dx + dz * dz <= innerR2) {
+                    Location fenceLoc = new Location(w, x, floorY, railZ);
+                    if (!savedBlocks.containsKey(fenceLoc))
+                        savedBlocks.put(fenceLoc, fenceLoc.getBlock().getState());
+                    fenceLoc.getBlock().setType(Material.DARK_OAK_FENCE, false);
+                }
+            }
+        }
+
+        // ── 4. Lectern at center (judge's podium) ──
+        Location lecternLoc = new Location(w, cx, floorY, cz);
+        if (!savedBlocks.containsKey(lecternLoc))
+            savedBlocks.put(lecternLoc, lecternLoc.getBlock().getState());
+        lecternLoc.getBlock().setType(Material.LECTERN, false);
+
+        // ── 5. Lanterns for lighting: center, four cardinal points, and four diagonals ──
+        int lanternY = floorY + 4;
+        int[][] lanternOffsets = {{0, 0}, {8, 0}, {-8, 0}, {0, 8}, {0, -8}, {6, 6}, {-6, 6}, {6, -6}, {-6, -6}};
+        for (int[] off : lanternOffsets) {
+            int lx = cx + off[0];
+            int lz = cz + off[1];
+            int dx = lx - cx, dz = lz - cz;
+            if (dx * dx + dz * dz <= innerR2) {
+                Location lanternLoc = new Location(w, lx, lanternY, lz);
+                if (!savedBlocks.containsKey(lanternLoc))
+                    savedBlocks.put(lanternLoc, lanternLoc.getBlock().getState());
+                lanternLoc.getBlock().setType(Material.LANTERN, false);
+            }
+        }
+
+        // Gold/yellow ambiance particles
         Particle.DustOptions gold = new Particle.DustOptions(Color.fromRGB(200, 150, 0), 1.5f);
         for (int i = 0; i < 150; i++) {
             double r = RADIUS * Math.random();

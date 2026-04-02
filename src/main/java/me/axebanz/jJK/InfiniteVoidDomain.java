@@ -54,6 +54,14 @@ public final class InfiniteVoidDomain extends DomainExpansion {
         w.playSound(center, Sound.BLOCK_END_PORTAL_SPAWN, 1.5f, 0.5f);
         w.playSound(center, Sound.AMBIENT_SOUL_SAND_VALLEY_ADDITIONS, 2.0f, 0.5f);
 
+        // Replace barrier shell blocks with WHITE_CONCRETE for IDG-style visual exterior
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!active) return;
+            for (Location loc : barrierBlocks) {
+                loc.getBlock().setType(Material.WHITE_CONCRETE, false);
+            }
+        }, 2L);
+
         // Notify players inside
         for (Player p : getPlayersInside()) {
             p.sendMessage(plugin.cfg().prefix() + "§1§lINFINITE VOID §0— §7You cannot escape.");
