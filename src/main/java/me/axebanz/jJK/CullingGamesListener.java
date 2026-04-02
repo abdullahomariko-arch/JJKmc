@@ -35,9 +35,11 @@ public final class CullingGamesListener implements Listener {
         Player victim = event.getEntity();
         Player killer = victim.getKiller();
         if (killer != null) {
-            // Award points to killer
-            mgr.addPoints(killer.getUniqueId(), 100);
-            killer.sendMessage(plugin.cfg().prefix() + "§6+100 points §efor sorcerer elimination!");
+            String colony = mgr.getColony(killer);
+            if (colony != null) {
+                mgr.addPoints(killer.getUniqueId(), 100);
+                killer.sendMessage(plugin.cfg().prefix() + "§6+100 points §efor sorcerer elimination in Colony " + colony + "!");
+            }
         }
     }
 }

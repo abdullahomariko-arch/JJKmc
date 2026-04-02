@@ -46,11 +46,14 @@ public final class CursedMobManager implements Listener {
         if (!cursedMobs.contains(entity.getUniqueId())) return;
         cursedMobs.remove(entity.getUniqueId());
 
-        // Award points to killer if they are a player in culling games
+        // Award points to killer if they are a player inside a Culling Games colony
         Player killer = entity.getKiller();
         if (killer != null && plugin.cullingGames() != null) {
-            plugin.cullingGames().addPoints(killer.getUniqueId(), 5);
-            killer.sendMessage(plugin.cfg().prefix() + "§6+5 points §efor cursed mob kill!");
+            String colony = plugin.cullingGames().getColony(killer);
+            if (colony != null) {
+                plugin.cullingGames().addPoints(killer.getUniqueId(), 5);
+                killer.sendMessage(plugin.cfg().prefix() + "§6+5 points §efor cursed mob kill in Colony " + colony + "!");
+            }
         }
     }
 

@@ -32,8 +32,10 @@ public final class CursedEnergyListener implements Listener {
     /** Tracks players currently in RCT healing (to avoid re-triggering) */
     private final Map<UUID, Long> rctActiveUntilMs = new ConcurrentHashMap<>();
 
-    /** Mob kill XP — each mob kill */
-    private static final int MOB_KILL_XP = 1;
+    /** Mob kill XP — each regular mob kill */
+    private static final int MOB_KILL_XP = 5;
+    /** Cursed mob kill XP — harder mobs give more XP */
+    private static final int CURSED_MOB_KILL_XP = 15;
     /** Player kill XP */
     private static final int PLAYER_KILL_XP = 15;
 
@@ -59,11 +61,16 @@ public final class CursedEnergyListener implements Listener {
         int xp;
         if (e.getEntity() instanceof Player) {
             xp = PLAYER_KILL_XP;
+        } else if (plugin.cursedMobs() != null && plugin.cursedMobs().isCursedMob(e.getEntity())) {
+            xp = CURSED_MOB_KILL_XP;
         } else {
             xp = MOB_KILL_XP;
         }
 
         plugin.ce().addCeLevelXp(killerUuid, xp);
+
+        // Show XP gain to player
+        killer.sendActionBar(plugin.cfg().prefix() + "§a+" + xp + " CE XP");
     }
 
     // ===== Fall damage reduction at CE level >= 20 =====

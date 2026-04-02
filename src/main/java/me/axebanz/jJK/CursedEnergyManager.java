@@ -160,6 +160,13 @@ public final class CursedEnergyManager {
         String techId = plugin.techniqueManager().getAssignedId(uuid);
         if (plugin.projectionManager() != null && "projection".equalsIgnoreCase(techId)) return 20;
         if ("energy_discharge".equalsIgnoreCase(techId)) return 200;
+        // Six Eyes + Limitless: 100 CE with Six Eyes, 50 CE without
+        if ("limitless".equalsIgnoreCase(techId) && plugin.sixEyes() != null) {
+            Player p = plugin.getServer().getPlayer(uuid);
+            if (p != null) {
+                return plugin.sixEyes().hasSixEyes(p) ? 100 : 50;
+            }
+        }
         return plugin.cfg().ceMax();
     }
 
