@@ -1,7 +1,6 @@
 package me.axebanz.jJK;
 
 import org.bukkit.*;
-import org.bukkit.block.Block;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -19,6 +18,8 @@ import java.util.*;
 public final class DeadlySentencingDomain extends DomainExpansion implements Listener {
 
     private static final int RADIUS = 30;
+    /** How many blocks inside the outer shell the courtroom floor insets. */
+    private static final int COURTROOM_FLOOR_INSET = 3;
     private ArmorStand judgemanStand = null;
     private final List<BukkitTask> pendingTasks = new ArrayList<>();
     private final List<Player> defendants = new ArrayList<>();
@@ -41,7 +42,8 @@ public final class DeadlySentencingDomain extends DomainExpansion implements Lis
         int cz = center.getBlockZ();
         int floorY = cy - 1;       // visible floor level (stone brick)
         int barrierY = cy - 2;     // barrier below floor (void feel)
-        int innerR = RADIUS - 3;   // courtroom floor radius
+        int innerR = RADIUS - COURTROOM_FLOOR_INSET;   // courtroom floor radius
+        int innerR2 = innerR * innerR;
 
         // ── 1. IDG-style white concrete shell (replaces barrier blocks) ──
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
@@ -54,8 +56,8 @@ public final class DeadlySentencingDomain extends DomainExpansion implements Lis
         // ── 2. Barrier void floor + stone brick visible floor ──
         for (int x = cx - innerR; x <= cx + innerR; x++) {
             for (int z = cz - innerR; z <= cz + innerR; z++) {
-                double dist = Math.sqrt((double)(x - cx) * (x - cx) + (double)(z - cz) * (z - cz));
-                if (dist <= innerR) {
+                int dx = x - cx, dz = z - cz;
+                if (dx * dx + dz * dz <= innerR2) {
                     Location barrierLoc = new Location(w, x, barrierY, z);
                     Location floorLoc   = new Location(w, x, floorY,   z);
 
@@ -74,10 +76,11 @@ public final class DeadlySentencingDomain extends DomainExpansion implements Lis
         int railZ1 = cz + 8;
         int railZ2 = cz - 8;
         int railR  = innerR - 2;
+        int railR2 = innerR2; // fence posts stay within the floor area
         for (int x = cx - railR; x <= cx + railR; x++) {
             for (int railZ : new int[]{railZ1, railZ2}) {
-                double dist = Math.sqrt((double)(x - cx) * (x - cx) + (double)(railZ - cz) * (railZ - cz));
-                if (dist <= innerR) {
+                int dx = x - cx, dz = railZ - cz;
+                if (dx * dx + dz * dz <= railR2) {
                     Location fenceLoc = new Location(w, x, floorY, railZ);
                     if (!savedBlocks.containsKey(fenceLoc))
                         savedBlocks.put(fenceLoc, fenceLoc.getBlock().getState());
@@ -98,8 +101,8 @@ public final class DeadlySentencingDomain extends DomainExpansion implements Lis
         for (int[] off : lanternOffsets) {
             int lx = cx + off[0];
             int lz = cz + off[1];
-            double dist = Math.sqrt((double)(lx - cx) * (lx - cx) + (double)(lz - cz) * (lz - cz));
-            if (dist <= innerR) {
+            int dx = lx - cx, dz = lz - cz;
+            if (dx * dx + dz * dz <= innerR2) {
                 Location lanternLoc = new Location(w, lx, lanternY, lz);
                 if (!savedBlocks.containsKey(lanternLoc))
                     savedBlocks.put(lanternLoc, lanternLoc.getBlock().getState());

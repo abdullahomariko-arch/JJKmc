@@ -480,7 +480,8 @@ public final class EnergyDischargeManager {
         float thickness = switch (phase) {
             case 1 -> 0.8f;
             case 2 -> 1.5f;
-            default -> 3.0f;
+            case 3 -> 3.0f;
+            default -> 1.0f; // fallback; only phases 1-3 are valid
         };
 
         ItemDisplay display = (ItemDisplay) world.spawnEntity(midLoc, EntityType.ITEM_DISPLAY);
@@ -494,20 +495,20 @@ public final class EnergyDischargeManager {
                 new Quaternionf()
         ));
 
-        // Traveling END_ROD particles along the beam every 2 ticks
+        // Traveling END_ROD particles along the beam every 2 ticks (use fixed direction from beam creation)
         final double finalBeamLength = beamLength;
+        final Location fixedEye = eyeLoc.clone();
+        final Vector fixedDir = dir.clone();
         BukkitTask[] particleRef = {null};
         particleRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             if (!display.isValid()) {
                 particleRef[0].cancel();
                 return;
             }
-            Location currentEye = p.getEyeLocation();
-            Vector currentDir = currentEye.getDirection().normalize();
             for (double d = 0; d <= finalBeamLength; d += 2.0) {
-                Location sparkLoc = currentEye.clone().add(currentDir.clone().multiply(d));
+                Location sparkLoc = fixedEye.clone().add(fixedDir.clone().multiply(d));
                 world.spawnParticle(Particle.END_ROD, sparkLoc, 0,
-                        currentDir.getX() * 0.5, currentDir.getY() * 0.5, currentDir.getZ() * 0.5, 0.15);
+                        fixedDir.getX() * 0.5, fixedDir.getY() * 0.5, fixedDir.getZ() * 0.5, 0.15);
             }
         }, 0L, 2L);
 
