@@ -30,6 +30,7 @@ public final class CommandRouter implements CommandExecutor, TabCompleter {
         }
         register(new CmdRemoveBindingVow(plugin));
         register(new CmdCursedEnergy(plugin));
+        register(new CmdKeybind(plugin));
     }
 
     @Override
