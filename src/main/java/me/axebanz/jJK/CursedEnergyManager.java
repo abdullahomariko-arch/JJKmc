@@ -163,9 +163,8 @@ public final class CursedEnergyManager {
         // Six Eyes + Limitless: 100 CE with Six Eyes, 50 CE without
         if ("limitless".equalsIgnoreCase(techId) && plugin.sixEyes() != null) {
             Player p = plugin.getServer().getPlayer(uuid);
-            if (p != null) {
-                return plugin.sixEyes().hasSixEyes(p) ? 100 : 50;
-            }
+            if (p != null && plugin.sixEyes().hasSixEyes(p)) return 100;
+            return 50; // Default for Limitless without Six Eyes (or offline)
         }
         return plugin.cfg().ceMax();
     }

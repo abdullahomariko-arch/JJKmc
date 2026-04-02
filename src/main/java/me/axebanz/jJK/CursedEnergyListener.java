@@ -70,7 +70,7 @@ public final class CursedEnergyListener implements Listener {
         plugin.ce().addCeLevelXp(killerUuid, xp);
 
         // Show XP gain to player
-        killer.sendActionBar(plugin.cfg().prefix() + "§a+" + xp + " CE XP");
+        killer.sendActionBar("§a+" + xp + " CE XP");
     }
 
     // ===== Fall damage reduction at CE level >= 20 =====
