@@ -238,17 +238,15 @@ public final class LimitlessManager {
                 }
                 if (dist <= 1.0) {
                     le.damage(damagePerTick, caster);
-                    if (le.isDead() && isMax) {
-                        // Killed by Blue Max — mark canLock
-                        canLockBlue.add(uuid);
-                        caster.sendMessage(plugin.cfg().prefix() + "§b§lBlue orb §7is now lockable! Shift to lock.");
-                    }
                 }
             }
 
             if (isMax) {
-                // Blue Max stays until locked or timer expires (unless locked)
-                if (lockedBlueOrbs.containsKey(uuid)) return; // locked, don't decrement
+                // Safety: if orb was locked externally, cancel this task
+                if (lockedBlueOrbs.containsKey(uuid)) {
+                    activeRef[0].cancel();
+                    return;
+                }
             }
 
             ticksLeft[0]--;
@@ -306,7 +304,7 @@ public final class LimitlessManager {
             e.setTransformation(new Transformation(
                     new Vector3f(0f, 0f, 0f),
                     new Quaternionf(),
-                    new Vector3f(1.25f, 1.25f, 1.25f), // 2.5x bigger than normal 0.5
+                    new Vector3f(1.25f, 1.25f, 1.25f), // 2.5x larger than normal Blue (0.5 base → 1.25 = 2.5× multiplier)
                     new Quaternionf()));
             e.setBrightness(new Display.Brightness(15, 15));
         });
@@ -323,8 +321,8 @@ public final class LimitlessManager {
             orb.teleport(pos);
             world.spawnParticle(Particle.SOUL_FIRE_FLAME, pos, 5, 0.2, 0.2, 0.2, 0.02);
 
-            // Destroy blocks in 2-block radius as orb travels
-            if (step[0] % 2 == 0) {
+            // Destroy blocks in 2-block radius as orb travels (every 4 ticks to reduce lag)
+            if (step[0] % 4 == 0) {
                 destroyBlocksInRadius(pos, 2, p);
             }
 
@@ -339,7 +337,7 @@ public final class LimitlessManager {
     // ===== Blue Max Lock / Unlock (called by LimitlessListener) =====
 
     /** Returns true if the player has an active Blue Max orb that can be locked. */
-    public boolean hasActiveBluMaxOrb(Player p) {
+    public boolean hasActiveBlueMaxOrb(Player p) {
         return activeBlueMaxOrbs.containsKey(p.getUniqueId());
     }
 
@@ -354,7 +352,7 @@ public final class LimitlessManager {
     }
 
     /**
-     * Locks the Blue Max orb in place — cancels the removal timer and stores
+     * Locks the Blue Max orb in place — cancels the active pull task and stores
      * the orb reference for Nuke detection.
      */
     public void lockBlueOrb(Player p) {
@@ -363,6 +361,9 @@ public final class LimitlessManager {
         if (orb == null || !orb.isValid()) return;
         lockedBlueOrbs.put(uuid, orb);
         canLockBlue.remove(uuid);
+        // Cancel the active phase task — the orb now persists until released
+        BukkitTask task = blueMaxActiveTasks.remove(uuid);
+        if (task != null) task.cancel();
         p.sendMessage(plugin.cfg().prefix() + "§b§lBlue orb LOCKED §7— stop sneaking to release.");
     }
 

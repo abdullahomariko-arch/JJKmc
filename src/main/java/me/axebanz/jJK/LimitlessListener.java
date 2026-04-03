@@ -91,7 +91,7 @@ public final class LimitlessListener implements Listener {
         if (!"limitless".equalsIgnoreCase(assignedId)) return;
 
         // Check if they have an active Blue Max orb
-        if (manager.hasActiveBluMaxOrb(killer)) {
+        if (manager.hasActiveBlueMaxOrb(killer)) {
             manager.markCanLockBlue(killer);
             killer.sendMessage(plugin.cfg().prefix() + "§b§lBlue orb §7is now lockable! §eShift to lock.");
         }
@@ -110,7 +110,7 @@ public final class LimitlessListener implements Listener {
 
         if (e.isSneaking()) {
             // Player just started sneaking — try to lock the Blue Max orb
-            if (manager.hasActiveBluMaxOrb(p) && manager.canLockBlue(p)) {
+            if (manager.hasActiveBlueMaxOrb(p) && manager.canLockBlue(p)) {
                 manager.lockBlueOrb(p);
             }
         } else {
