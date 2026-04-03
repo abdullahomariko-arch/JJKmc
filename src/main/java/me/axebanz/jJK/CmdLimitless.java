@@ -42,6 +42,13 @@ public final class CmdLimitless implements CommandExecutor, TabCompleter {
         }
 
         String sub = args[0].toLowerCase(Locale.ROOT);
+
+        // Support two-word forms: "blue max", "red max"
+        if (args.length >= 2 && "max".equalsIgnoreCase(args[1])) {
+            if ("blue".equals(sub)) { mgr.castBlueMax(p); return true; }
+            if ("red".equals(sub)) { mgr.castRedMax(p); return true; }
+        }
+
         switch (sub) {
             case "infinity" -> mgr.toggleInfinity(p);
             case "blue" -> mgr.castBlue(p);
@@ -53,7 +60,8 @@ public final class CmdLimitless implements CommandExecutor, TabCompleter {
             case "void", "domain", "infinitevoid" -> mgr.castInfiniteVoid(p);
             case "status" -> {
                 boolean infinity = mgr.isInfinityActive(p);
-                boolean canNuke = plugin.data().get(p.getUniqueId()).limitlessCanNuke;
+                boolean hasLockedBlue = mgr.hasLockedBlueOrb(p);
+                boolean canNuke = hasLockedBlue; // nuke available when locked Blue orb exists
                 boolean hasSixEyes = plugin.sixEyes() != null && plugin.sixEyes().hasSixEyes(p);
                 int ceLevel = plugin.ce().getCeLevel(p.getUniqueId());
                 boolean rct = plugin.ce().hasRct(p.getUniqueId());
@@ -63,9 +71,12 @@ public final class CmdLimitless implements CommandExecutor, TabCompleter {
                 p.sendMessage("  §7Six Eyes: " + (hasSixEyes ? "§aYes" : "§cNo"));
                 p.sendMessage("  §7CE Level: §f" + ceLevel + "/" + plugin.ce().getMaxCeLevel(p.getUniqueId()));
                 p.sendMessage("  §7RCT (Red unlocked): " + (rct ? "§aYes" : "§cNo §7(need 200 CE)"));
-                p.sendMessage("  §7Nuke available: " + (canNuke ? "§aYes" : "§cNo"));
-                if (mgr.getStationaryBlueLocation(p.getUniqueId()) != null) {
-                    p.sendMessage("  §7Stationary Blue: §aAnchored");
+                p.sendMessage("  §7Nuke available: " + (canNuke ? "§aYes (locked Blue orb active)" : "§cNo"));
+                if (mgr.canLockBlue(p)) {
+                    p.sendMessage("  §7Blue orb lockable: §aYes — Shift to lock!");
+                }
+                if (hasLockedBlue) {
+                    p.sendMessage("  §7Locked Blue orb: §aAnchored (stop sneaking to release)");
                 }
             }
             default -> sendHelp(p, label);
@@ -93,6 +104,12 @@ public final class CmdLimitless implements CommandExecutor, TabCompleter {
         if (!"limitless".equalsIgnoreCase(assignedId)) return List.of();
         if (args.length == 1) {
             return List.of("infinity", "blue", "bluemax", "red", "redmax", "purple", "nuke", "void", "status");
+        }
+        if (args.length == 2) {
+            String first = args[0].toLowerCase(Locale.ROOT);
+            if ("blue".equals(first) || "red".equals(first)) {
+                return List.of("max");
+            }
         }
         return List.of();
     }
