@@ -3,17 +3,20 @@ package me.axebanz.jJK;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.entity.*;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Manages all Limitless Technique abilities:
- * Infinity, Blue, Blue Max, Red, Red Max, Hollow Purple, Hollow Purple Nuke.
+ * Infinity, Blue, Blue Max, Red, Red Max, Hollow Purple, Hollow Purple Nuke,
+ * and Domain Expansion: Infinite Void.
  */
 public final class LimitlessManager {
 
@@ -22,24 +25,34 @@ public final class LimitlessManager {
     // Infinity state
     private final Map<UUID, BukkitTask> infinityParticleTasks = new ConcurrentHashMap<>();
 
-    // Stationary Blue Max spheres: uuid -> location
-    private final Map<UUID, Location> stationaryBlueSpheres = new ConcurrentHashMap<>();
-    private final Map<UUID, BukkitTask> stationaryBlueTasks = new ConcurrentHashMap<>();
+    // Blue orbs (normal) — uuid -> active ItemDisplay entity
+    private final Map<UUID, ItemDisplay> activeBlueOrbs = new ConcurrentHashMap<>();
 
-    // Red Max: players currently "holding" the red sphere
-    private final Map<UUID, BukkitTask> redMaxHoldTasks = new ConcurrentHashMap<>();
-    private final Map<UUID, Location> redMaxHeldLocations = new ConcurrentHashMap<>();
-
-    // ===== CE costs (standard) — Six Eyes makes these 0 =====
-    public static final int CE_COST_BLUE = 1;
-    public static final int CE_COST_BLUE_MAX = 2;
-    public static final int CE_COST_RED = 1;
-    public static final int CE_COST_RED_MAX = 2;
-    public static final int CE_COST_PURPLE = 3;
-    public static final int CE_COST_NUKE = 5;
+    // Blue Max orbs — uuid -> active ItemDisplay entity (during travel + active phase)
+    private final Map<UUID, ItemDisplay> activeBlueMaxOrbs = new ConcurrentHashMap<>();
+    // Blue Max orb active-phase tasks (the pull/damage loop)
+    private final Map<UUID, BukkitTask> blueMaxActiveTasks = new ConcurrentHashMap<>();
+    // Players who killed something during Blue Max orb — can now lock the orb
+    private final Set<UUID> canLockBlue = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    // Locked Blue orbs — uuid -> locked ItemDisplay entity (for Nuke detection)
+    private final Map<UUID, ItemDisplay> lockedBlueOrbs = new ConcurrentHashMap<>();
 
     public LimitlessManager(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
+    }
+
+    // ===== CE cost helpers (percentage-based) =====
+
+    /** Returns CE cost as a percentage of the player's max CE. */
+    private int percentCost(Player p, double pct) {
+        int maxCe = plugin.ce().max(p.getUniqueId());
+        return Math.max(1, (int) Math.round(maxCe * pct));
+    }
+
+    /** Returns 0 for Six Eyes holders, otherwise the percentage cost. */
+    private int effectiveCost(Player p, double pct) {
+        if (hasSixEyes(p)) return 0;
+        return percentCost(p, pct);
     }
 
     // ===== Helpers =====
@@ -51,10 +64,6 @@ public final class LimitlessManager {
 
     private boolean hasSixEyes(Player p) {
         return plugin.sixEyes() != null && plugin.sixEyes().hasSixEyes(p);
-    }
-
-    private int effectiveCost(Player p, int cost) {
-        return hasSixEyes(p) ? 0 : cost;
     }
 
     private boolean checkTechnique(Player p) {
@@ -140,241 +149,334 @@ public final class LimitlessManager {
         if (task != null) task.cancel();
     }
 
-    // ===== BLUE (Cursed Technique Lapse) =====
+    // ===== BLUE (Attraction Orb) =====
 
     public void castBlue(Player p) {
         if (!checkTechnique(p)) return;
-        if (!checkCooldown(p, "limitless_blue", 8)) return;
+        if (!checkCooldown(p, "limitless_blue", 10)) return;
 
-        int cost = effectiveCost(p, CE_COST_BLUE);
+        int cost = effectiveCost(p, 0.15);
         if (!plugin.ce().tryConsume(p.getUniqueId(), cost)) {
             p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
             return;
         }
+        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_blue", 10);
 
-        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_blue", 8);
-
-        Location target = findTargetLocation(p, 50);
-        spawnBlueSphere(p, target, 5, 8, 5, false);
-
-        p.sendMessage(plugin.cfg().prefix() + "§bBlue §7— entities pulled!");
+        p.sendMessage(plugin.cfg().prefix() + "§bBlue §7— attraction orb fired!");
         p.playSound(p.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 0.8f, 1.8f);
+
+        // Raycast: 0.5-block steps, max 30 blocks
+        Location eye = p.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        int totalSteps = 0;
+        for (int i = 1; i <= 60; i++) {
+            Location check = eye.clone().add(dir.clone().multiply(i * 0.5));
+            if (check.getBlock().getType().isSolid()) break;
+            totalSteps = i;
+        }
+        if (totalSteps == 0) totalSteps = 1;
+
+        // Spawn ItemDisplay orb at eye location
+        final int finalSteps = totalSteps;
+        World world = p.getWorld();
+        ItemDisplay orb = world.spawn(eye.clone(), ItemDisplay.class, e -> {
+            e.setItemStack(new ItemStack(Material.BLUE_ICE));
+            e.setTransformation(new Transformation(
+                    new Vector3f(0f, 0f, 0f),
+                    new Quaternionf(),
+                    new Vector3f(0.5f, 0.5f, 0.5f),
+                    new Quaternionf()));
+            e.setBrightness(new Display.Brightness(15, 15));
+        });
+        activeBlueOrbs.put(p.getUniqueId(), orb);
+
+        // Travel along raycast path (1 tick per step)
+        final Location fixedEye = eye.clone();
+        final int[] step = {0};
+        BukkitTask[] travelRef = {null};
+        travelRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!orb.isValid()) { travelRef[0].cancel(); return; }
+            step[0]++;
+            Location pos = fixedEye.clone().add(dir.clone().multiply(step[0] * 0.5));
+            orb.teleport(pos);
+            world.spawnParticle(Particle.SOUL_FIRE_FLAME, pos, 3, 0.1, 0.1, 0.1, 0.02);
+
+            if (step[0] >= finalSteps) {
+                travelRef[0].cancel();
+                // Orb arrived — active phase for 5 seconds (100 ticks)
+                activateBlueOrb(p, orb, 5.0, 100, 0.15, false);
+            }
+        }, 0L, 1L);
     }
 
-    private void spawnBlueSphere(Player caster, Location center, double radius, double damagePerSecond, int durationSeconds, boolean isMax) {
-        World w = center.getWorld();
-        if (w == null) return;
+    /** Runs the active pull/damage loop once the Blue orb has arrived. */
+    private void activateBlueOrb(Player caster, ItemDisplay orb, double pullRadius,
+                                  int durationTicks, double damagePerTick, boolean isMax) {
+        UUID uuid = caster.getUniqueId();
+        final int[] ticksLeft = {durationTicks};
 
-        int particleCount = isMax ? 20 : 8;
-        double particleRadius = isMax ? 2.5 : 1.0;
-
-        int[] ticksLeft = {durationSeconds * 20};
-        Particle.DustOptions dust = new Particle.DustOptions(Color.fromRGB(0, 80, 255), isMax ? 2.0f : 1.2f);
-
-        BukkitTask[] taskRef = {null};
-        taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            ticksLeft[0] -= 2;
-            if (ticksLeft[0] <= 0) {
-                taskRef[0].cancel();
-                // Dissipate particles
-                w.spawnParticle(Particle.EXPLOSION, center, 1, 0, 0, 0, 0);
+        BukkitTask[] activeRef = {null};
+        activeRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!orb.isValid()) {
+                activeRef[0].cancel();
+                cleanupBlueOrb(uuid, isMax);
                 return;
             }
 
-            // Spawn sphere particles
-            spawnSphereParticles(w, center, particleRadius, particleCount, dust);
+            Location center = orb.getLocation();
+            World cw = center.getWorld();
+            if (cw == null) return;
+            cw.spawnParticle(Particle.SOUL_FIRE_FLAME, center, 4, 0.3, 0.3, 0.3, 0.01);
 
-            // Pull entities every 10 ticks (0.5s)
-            if (ticksLeft[0] % 10 == 0) {
-                double dmg = damagePerSecond * 0.5; // per 0.5 seconds
-                for (LivingEntity le : getEntitiesInRadius(center, radius, caster)) {
-                    // Pull toward center
-                    Vector pull = center.toVector().subtract(le.getLocation().toVector());
-                    double dist = pull.length();
-                    if (dist > 0.1) {
-                        pull = pull.normalize().multiply(Math.min(1.5, dist * 0.3));
-                        le.setVelocity(le.getVelocity().add(pull));
-                    }
-                    le.damage(dmg, caster);
-
-                    if (isMax && le.isDead()) {
-                        // Entity died from Max Blue
-                        setCanNuke(caster, true);
+            // Pull entities toward center, extra damage for very close entities
+            for (LivingEntity le : getEntitiesInRadius(center, pullRadius, caster)) {
+                Vector pull = center.toVector().subtract(le.getLocation().toVector());
+                double dist = pull.length();
+                if (dist > 0.1) {
+                    pull = pull.normalize().multiply(Math.min(1.5, dist * 0.3));
+                    le.setVelocity(le.getVelocity().add(pull));
+                }
+                if (dist <= 1.0) {
+                    le.damage(damagePerTick, caster);
+                    if (le.isDead() && isMax) {
+                        // Killed by Blue Max — mark canLock
+                        canLockBlue.add(uuid);
+                        caster.sendMessage(plugin.cfg().prefix() + "§b§lBlue orb §7is now lockable! Shift to lock.");
                     }
                 }
             }
-        }, 0L, 2L);
+
+            if (isMax) {
+                // Blue Max stays until locked or timer expires (unless locked)
+                if (lockedBlueOrbs.containsKey(uuid)) return; // locked, don't decrement
+            }
+
+            ticksLeft[0]--;
+            if (ticksLeft[0] <= 0) {
+                activeRef[0].cancel();
+                if (orb.isValid()) orb.remove();
+                cleanupBlueOrb(uuid, isMax);
+            }
+        }, 0L, 1L);
+
+        if (isMax) blueMaxActiveTasks.put(uuid, activeRef[0]);
     }
 
-    // ===== BLUE MAX =====
+    private void cleanupBlueOrb(UUID uuid, boolean isMax) {
+        activeBlueOrbs.remove(uuid);
+        if (isMax) {
+            activeBlueMaxOrbs.remove(uuid);
+            blueMaxActiveTasks.remove(uuid);
+        }
+    }
+
+    // ===== BLUE MAX (Maximum Output) =====
 
     public void castBlueMax(Player p) {
         if (!checkTechnique(p)) return;
-        if (!checkCooldown(p, "limitless_blue_max", 15)) return;
+        if (!checkCooldown(p, "limitless_blue_max", 25)) return;
 
-        int cost = effectiveCost(p, CE_COST_BLUE_MAX);
+        int cost = effectiveCost(p, 0.30);
         if (!plugin.ce().tryConsume(p.getUniqueId(), cost)) {
             p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
             return;
         }
+        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_blue_max", 25);
 
-        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_blue_max", 15);
-
-        UUID uuid = p.getUniqueId();
-
-        p.sendMessage(plugin.cfg().prefix() + "§bBlue Maximum Output §7— controlling sphere. §eShift to release.");
+        p.sendMessage(plugin.cfg().prefix() + "§bBlue Maximum Output §7— attraction orb fired!");
         p.playSound(p.getLocation(), Sound.ENTITY_WARDEN_SONIC_BOOM, 0.8f, 2.0f);
 
-        int[] ticks = {0};
-        final int MAX_DURATION = 200; // 10 seconds of control
-        Particle.DustOptions dust = new Particle.DustOptions(Color.fromRGB(0, 100, 255), 2.5f);
+        // Raycast: 0.5-block steps, max 30 blocks
+        Location eye = p.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        int totalSteps = 0;
+        for (int i = 1; i <= 60; i++) {
+            Location check = eye.clone().add(dir.clone().multiply(i * 0.5));
+            if (check.getBlock().getType().isSolid()) break;
+            totalSteps = i;
+        }
+        if (totalSteps == 0) totalSteps = 1;
 
-        BukkitTask[] taskRef = {null};
-        taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!p.isOnline()) { taskRef[0].cancel(); return; }
+        final int finalSteps = totalSteps;
+        World world = p.getWorld();
 
-            ticks[0]++;
+        // Spawn larger ItemDisplay orb (2.5x normal scale)
+        ItemDisplay orb = world.spawn(eye.clone(), ItemDisplay.class, e -> {
+            e.setItemStack(new ItemStack(Material.BLUE_ICE));
+            e.setTransformation(new Transformation(
+                    new Vector3f(0f, 0f, 0f),
+                    new Quaternionf(),
+                    new Vector3f(1.25f, 1.25f, 1.25f), // 2.5x bigger than normal 0.5
+                    new Quaternionf()));
+            e.setBrightness(new Display.Brightness(15, 15));
+        });
+        activeBlueMaxOrbs.put(p.getUniqueId(), orb);
 
-            // Follow player's look direction
-            Location sphereLoc = p.getEyeLocation().add(p.getLocation().getDirection().multiply(5));
+        // Travel along raycast path, destroying blocks in 2-block radius
+        final Location fixedEye = eye.clone();
+        final int[] step = {0};
+        BukkitTask[] travelRef = {null};
+        travelRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!orb.isValid()) { travelRef[0].cancel(); return; }
+            step[0]++;
+            Location pos = fixedEye.clone().add(dir.clone().multiply(step[0] * 0.5));
+            orb.teleport(pos);
+            world.spawnParticle(Particle.SOUL_FIRE_FLAME, pos, 5, 0.2, 0.2, 0.2, 0.02);
 
-            // Sphere particles
-            spawnSphereParticles(p.getWorld(), sphereLoc, 2.5, 20, dust);
-
-            // Destroy blocks in path
-            if (ticks[0] % 5 == 0) {
-                destroyBlocksInRadius(sphereLoc, 2, p);
+            // Destroy blocks in 2-block radius as orb travels
+            if (step[0] % 2 == 0) {
+                destroyBlocksInRadius(pos, 2, p);
             }
 
-            // Pull entities
-            if (ticks[0] % 10 == 0) {
-                boolean killedSomething = false;
-                for (LivingEntity le : getEntitiesInRadius(sphereLoc, 15, p)) {
-                    Vector pull = sphereLoc.toVector().subtract(le.getLocation().toVector());
-                    double dist = pull.length();
-                    if (dist > 0.1) pull = pull.normalize().multiply(Math.min(2.0, dist * 0.4));
-                    le.setVelocity(le.getVelocity().add(pull));
-                    le.damage(7.5, p); // 15/s in 0.5s intervals
-                    if (le.isDead()) killedSomething = true;
-                }
-                if (killedSomething) {
-                    setCanNuke(p, true);
-                    p.sendMessage("§b§lYou have the ability to release a nuke");
-                }
+            if (step[0] >= finalSteps) {
+                travelRef[0].cancel();
+                // Orb arrived — active phase (5 seconds = 100 ticks, pull 8 blocks, 6 HP/s = 0.3 per tick)
+                activateBlueOrb(p, orb, 8.0, 100, 0.3, true);
             }
-
-            // Player pressed shift OR max duration
-            if (p.isSneaking() || ticks[0] >= MAX_DURATION) {
-                taskRef[0].cancel();
-                // Sphere stays for 90 seconds
-                Location finalLoc = p.getEyeLocation().add(p.getLocation().getDirection().multiply(5));
-                makeStationaryBlue(p, finalLoc);
-                p.sendMessage(plugin.cfg().prefix() + "§bBlue sphere §7anchored for 90 seconds.");
-            }
-        }, 0L, 2L);
+        }, 0L, 1L);
     }
 
-    private void makeStationaryBlue(Player caster, Location loc) {
-        UUID uuid = caster.getUniqueId();
+    // ===== Blue Max Lock / Unlock (called by LimitlessListener) =====
 
-        // Cancel existing
-        BukkitTask old = stationaryBlueTasks.remove(uuid);
-        if (old != null) old.cancel();
-
-        stationaryBlueSpheres.put(uuid, loc.clone());
-        Particle.DustOptions dust = new Particle.DustOptions(Color.fromRGB(0, 100, 255), 2.5f);
-
-        int[] ticksLeft = {90 * 20}; // 90 seconds
-        BukkitTask[] taskRef = {null};
-        taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            ticksLeft[0] -= 2;
-            if (ticksLeft[0] <= 0 || !stationaryBlueSpheres.containsKey(uuid)) {
-                taskRef[0].cancel();
-                stationaryBlueSpheres.remove(uuid);
-                return;
-            }
-
-            Location center = stationaryBlueSpheres.get(uuid);
-            spawnSphereParticles(center.getWorld(), center, 2.5, 20, dust);
-
-            if (ticksLeft[0] % 10 == 0) {
-                for (LivingEntity le : getEntitiesInRadius(center, 15, caster)) {
-                    Vector pull = center.toVector().subtract(le.getLocation().toVector());
-                    double dist = pull.length();
-                    if (dist > 0.1) pull = pull.normalize().multiply(Math.min(2.0, dist * 0.4));
-                    le.setVelocity(le.getVelocity().add(pull));
-                    le.damage(7.5, caster);
-                }
-            }
-        }, 0L, 2L);
-        stationaryBlueTasks.put(uuid, taskRef[0]);
+    /** Returns true if the player has an active Blue Max orb that can be locked. */
+    public boolean hasActiveBluMaxOrb(Player p) {
+        return activeBlueMaxOrbs.containsKey(p.getUniqueId());
     }
 
-    private void setCanNuke(Player p, boolean val) {
-        PlayerProfile prof = plugin.data().get(p.getUniqueId());
-        prof.limitlessCanNuke = val;
-        plugin.data().save(p.getUniqueId());
+    /** Marks the player's Blue Max orb as lockable (called when they kill something). */
+    public void markCanLockBlue(Player p) {
+        canLockBlue.add(p.getUniqueId());
     }
 
-    // ===== RED (Cursed Technique Reversal) =====
+    /** Returns true if the player can lock their Blue Max orb. */
+    public boolean canLockBlue(Player p) {
+        return canLockBlue.contains(p.getUniqueId());
+    }
+
+    /**
+     * Locks the Blue Max orb in place — cancels the removal timer and stores
+     * the orb reference for Nuke detection.
+     */
+    public void lockBlueOrb(Player p) {
+        UUID uuid = p.getUniqueId();
+        ItemDisplay orb = activeBlueMaxOrbs.get(uuid);
+        if (orb == null || !orb.isValid()) return;
+        lockedBlueOrbs.put(uuid, orb);
+        canLockBlue.remove(uuid);
+        p.sendMessage(plugin.cfg().prefix() + "§b§lBlue orb LOCKED §7— stop sneaking to release.");
+    }
+
+    /** Returns true if the player has a locked Blue Max orb. */
+    public boolean hasLockedBlueOrb(Player p) {
+        UUID uuid = p.getUniqueId();
+        ItemDisplay orb = lockedBlueOrbs.get(uuid);
+        if (orb == null || !orb.isValid()) {
+            lockedBlueOrbs.remove(uuid);
+            return false;
+        }
+        return true;
+    }
+
+    /** Removes the locked Blue orb. */
+    public void removeLockedBlueOrb(Player p) {
+        UUID uuid = p.getUniqueId();
+        ItemDisplay orb = lockedBlueOrbs.remove(uuid);
+        if (orb != null && orb.isValid()) orb.remove();
+        activeBlueMaxOrbs.remove(uuid);
+        BukkitTask task = blueMaxActiveTasks.remove(uuid);
+        if (task != null) task.cancel();
+        p.sendMessage(plugin.cfg().prefix() + "§7Blue orb released.");
+    }
+
+    // ===== RED (Repulsion Orb — requires RCT) =====
 
     public void castRed(Player p) {
         if (!checkTechnique(p)) return;
 
-        // Requires RCT (200 CE for Limitless)
-        if (!plugin.ce().hasRct(p.getUniqueId())) {
-            p.sendMessage(plugin.cfg().prefix() + "§cRed requires §aReverse Cursed Technique §cunlocked! §7(Need 200 CE level)");
+        // Requires RCT — Six Eyes trait OR CE level >= 200
+        boolean hasRct = plugin.ce().hasRct(p.getUniqueId());
+        if (!hasRct) {
+            p.sendMessage(plugin.cfg().prefix() + "§cYou need Reverse Cursed Technique to use Red. §7(Need Six Eyes or 200 CE level)");
             return;
         }
-        if (!checkCooldown(p, "limitless_red", 8)) return;
+        if (!checkCooldown(p, "limitless_red", 15)) return;
 
-        int cost = effectiveCost(p, CE_COST_RED);
+        int cost = effectiveCost(p, 0.20);
         if (!plugin.ce().tryConsume(p.getUniqueId(), cost)) {
             p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
             return;
         }
+        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_red", 15);
 
-        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_red", 8);
-
-        Location target = findTargetLocation(p, 50);
-        spawnRedSphere(p, target, 5, 20, 3, false);
-
-        p.sendMessage(plugin.cfg().prefix() + "§cRed §7— entities repelled!");
+        p.sendMessage(plugin.cfg().prefix() + "§cRed §7— repulsion orb fired!");
         p.playSound(p.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 0.8f, 0.7f);
-    }
 
-    private void spawnRedSphere(Player caster, Location center, double radius, double impactDamage, int durationSeconds, boolean isMax) {
-        World w = center.getWorld();
-        if (w == null) return;
-
-        double particleRadius = isMax ? 2.0 : 1.0;
-        int particleCount = isMax ? 18 : 8;
-        Particle.DustOptions dust = new Particle.DustOptions(Color.fromRGB(220, 0, 0), isMax ? 2.0f : 1.2f);
-
-        // Immediate repulsion + damage
-        for (LivingEntity le : getEntitiesInRadius(center, radius, caster)) {
-            Vector push = le.getLocation().toVector().subtract(center.toVector());
-            double dist = push.length();
-            if (dist < 0.1) push = new Vector(1, 0.5, 0);
-            else push = push.normalize().multiply(isMax ? 4.0 : 2.5).add(new Vector(0, 0.5, 0));
-            le.setVelocity(push);
-            le.damage(impactDamage, caster);
+        // Raycast: 0.5-block steps, max 30 blocks
+        Location eye = p.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        int totalSteps = 0;
+        for (int i = 1; i <= 60; i++) {
+            Location check = eye.clone().add(dir.clone().multiply(i * 0.5));
+            if (check.getBlock().getType().isSolid()) break;
+            totalSteps = i;
         }
+        if (totalSteps == 0) totalSteps = 1;
 
-        // Short visual effect
-        int[] ticks = {durationSeconds * 10};
-        BukkitTask[] taskRef = {null};
-        taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            ticks[0] -= 2;
-            if (ticks[0] <= 0) { taskRef[0].cancel(); return; }
-            spawnSphereParticles(w, center, particleRadius, particleCount, dust);
-        }, 0L, 2L);
+        final int finalSteps = totalSteps;
+        World world = p.getWorld();
 
-        w.spawnParticle(Particle.EXPLOSION, center, 3, 0.5, 0.5, 0.5, 0);
-        w.playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1.4f);
+        // Spawn red ItemDisplay orb
+        ItemDisplay orb = world.spawn(eye.clone(), ItemDisplay.class, e -> {
+            e.setItemStack(new ItemStack(Material.NETHER_BRICK));
+            e.setTransformation(new Transformation(
+                    new Vector3f(0f, 0f, 0f),
+                    new Quaternionf(),
+                    new Vector3f(0.5f, 0.5f, 0.5f),
+                    new Quaternionf()));
+            e.setBrightness(new Display.Brightness(15, 15));
+        });
+
+        final Location fixedEye = eye.clone();
+        final int[] step = {0};
+        BukkitTask[] travelRef = {null};
+        travelRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!orb.isValid()) { travelRef[0].cancel(); return; }
+            step[0]++;
+            Location pos = fixedEye.clone().add(dir.clone().multiply(step[0] * 0.5));
+            orb.teleport(pos);
+            world.spawnParticle(Particle.FLAME, pos, 3, 0.1, 0.1, 0.1, 0.02);
+
+            if (step[0] >= finalSteps) {
+                travelRef[0].cancel();
+                // Orb arrived — push entities within 5 blocks, 10 HP + strong knockback
+                Location center = pos.clone();
+                for (LivingEntity le : getEntitiesInRadius(center, 5.0, p)) {
+                    Vector push = le.getLocation().toVector().subtract(center.toVector());
+                    if (push.length() < 0.1) push = new Vector(1, 0.5, 0);
+                    else push = push.normalize().multiply(2.5).add(new Vector(0, 0.5, 0));
+                    le.setVelocity(push);
+                    le.damage(10.0, p);
+                }
+                world.spawnParticle(Particle.EXPLOSION, center, 3, 0.5, 0.5, 0.5, 0);
+                world.playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1.4f);
+
+                // Brief visual then remove
+                final int[] visTicks = {30};
+                BukkitTask[] visRef = {null};
+                visRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+                    if (!orb.isValid()) { visRef[0].cancel(); return; }
+                    world.spawnParticle(Particle.FLAME, orb.getLocation(), 5, 0.3, 0.3, 0.3, 0.02);
+                    visTicks[0]--;
+                    if (visTicks[0] <= 0) {
+                        visRef[0].cancel();
+                        if (orb.isValid()) orb.remove();
+                    }
+                }, 0L, 1L);
+            }
+        }, 0L, 1L);
     }
 
-    // ===== RED MAX =====
+    // ===== RED MAX (Destruction Beam — requires RCT) =====
 
     public void castRedMax(Player p) {
         if (!checkTechnique(p)) return;
@@ -383,82 +485,85 @@ public final class LimitlessManager {
             p.sendMessage(plugin.cfg().prefix() + "§cRed Max requires §aReverse Cursed Technique§c!");
             return;
         }
-        if (!checkCooldown(p, "limitless_red_max", 12)) return;
+        if (!checkCooldown(p, "limitless_red_max", 30)) return;
 
-        int cost = effectiveCost(p, CE_COST_RED_MAX);
+        int cost = effectiveCost(p, 0.40);
         if (!plugin.ce().tryConsume(p.getUniqueId(), cost)) {
             p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
             return;
         }
+        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_red_max", 30);
 
-        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_red_max", 12);
+        p.sendMessage(plugin.cfg().prefix() + "§cRed Maximum Output §7— destruction beam!");
+        p.playSound(p.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0f, 0.5f);
 
-        UUID uuid = p.getUniqueId();
-        p.sendMessage(plugin.cfg().prefix() + "§cRed Maximum Output §7— aim and §eShift to launch!");
-        p.playSound(p.getLocation(), Sound.BLOCK_PORTAL_AMBIENT, 0.8f, 0.5f);
+        Location eyeLoc = p.getEyeLocation();
+        Vector dir = eyeLoc.getDirection().normalize();
+        World world = p.getWorld();
 
-        Particle.DustOptions dust = new Particle.DustOptions(Color.fromRGB(220, 0, 0), 2.0f);
-        int[] ticks = {0};
+        // Raycast: find beam length (max 60 blocks), destroy 1-block radius along beam
+        double beamLength = 60.0;
+        for (double d = 0.5; d <= 60.0; d += 0.5) {
+            Location step = eyeLoc.clone().add(dir.clone().multiply(d));
+            if (step.getBlock().getType().isSolid()) {
+                beamLength = d;
+                break;
+            }
+            // Destroy blocks in 1-block radius
+            destroyBlocksInRadius(step, 1, p);
+        }
 
-        BukkitTask[] taskRef = {null};
-        taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!p.isOnline()) { taskRef[0].cancel(); return; }
-            ticks[0]++;
+        // Damage all entities within 2 blocks of beam line
+        final double finalBeamLength = beamLength;
+        for (double d = 0; d <= finalBeamLength; d += 0.5) {
+            Location beamPt = eyeLoc.clone().add(dir.clone().multiply(d));
+            for (LivingEntity le : getEntitiesInRadius(beamPt, 2.0, p)) {
+                le.damage(20.0, p);
+            }
+        }
 
-            // Sphere in player's hand position
-            Location holdLoc = p.getEyeLocation().add(p.getLocation().getDirection().multiply(1.5));
-            spawnSphereParticles(p.getWorld(), holdLoc, 1.5, 12, dust);
+        // Spawn ItemDisplay beam at midpoint, Z scale = beam length
+        Location midLoc = eyeLoc.clone().add(dir.clone().multiply(finalBeamLength / 2.0));
+        ItemDisplay display = world.spawn(midLoc, ItemDisplay.class, e -> {
+            e.setItemStack(new ItemStack(Material.NETHER_BRICK));
+            e.setTransformation(new Transformation(
+                    new Vector3f(0f, 0f, 0f),
+                    new Quaternionf(),
+                    new Vector3f(0.5f, 0.5f, (float) finalBeamLength),
+                    new Quaternionf()));
+            e.setRotation(eyeLoc.getYaw(), eyeLoc.getPitch());
+            e.setBrightness(new Display.Brightness(15, 15));
+        });
 
-            // Launch on shift or after 5 seconds
-            if (p.isSneaking() || ticks[0] >= 100) {
-                taskRef[0].cancel();
-                launchRedMax(p);
+        // END_ROD traveling particles along beam
+        final Location fixedEye = eyeLoc.clone();
+        final Vector fixedDir = dir.clone();
+        BukkitTask[] particleRef = {null};
+        particleRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!display.isValid()) { particleRef[0].cancel(); return; }
+            for (double d = 0; d <= finalBeamLength; d += 2.0) {
+                Location sparkLoc = fixedEye.clone().add(fixedDir.clone().multiply(d));
+                world.spawnParticle(Particle.END_ROD, sparkLoc, 0,
+                        fixedDir.getX() * 0.5, fixedDir.getY() * 0.5, fixedDir.getZ() * 0.5, 0.15);
             }
         }, 0L, 2L);
-        redMaxHoldTasks.put(uuid, taskRef[0]);
+
+        // After 1 second (20 ticks): disappear animation (X, Y → 0 over 5 ticks)
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (particleRef[0] != null) particleRef[0].cancel();
+            if (!display.isValid()) return;
+            display.setInterpolationDuration(5);
+            display.setInterpolationDelay(0);
+            Transformation old = display.getTransformation();
+            display.setTransformation(new Transformation(
+                    old.getTranslation(), old.getLeftRotation(),
+                    new Vector3f(0f, 0f, old.getScale().z()),
+                    old.getRightRotation()));
+            Bukkit.getScheduler().runTaskLater(plugin, display::remove, 7L);
+        }, 20L);
     }
 
-    private void launchRedMax(Player caster) {
-        UUID uuid = caster.getUniqueId();
-        redMaxHoldTasks.remove(uuid);
-
-        Location start = caster.getEyeLocation();
-        Vector dir = caster.getLocation().getDirection().normalize();
-        Particle.DustOptions dust = new Particle.DustOptions(Color.fromRGB(220, 0, 0), 2.0f);
-
-        int[] ticks = {0};
-        BukkitTask[] taskRef = {null};
-
-        // Check if there's a stationary blue sphere — if so, trigger nuke
-        Location bluePos = stationaryBlueSpheres.get(uuid);
-
-        taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            ticks[0]++;
-            if (ticks[0] > 80) { taskRef[0].cancel(); return; } // max 4s travel
-
-            Location pos = start.clone().add(dir.clone().multiply(ticks[0] * 0.5));
-            spawnSphereParticles(pos.getWorld(), pos, 1.5, 10, dust);
-
-            // Nuke check
-            if (bluePos != null && pos.distance(bluePos) < 4.0) {
-                taskRef[0].cancel();
-                triggerNuke(caster, bluePos);
-                return;
-            }
-
-            // Hit entities
-            for (LivingEntity le : getEntitiesInRadius(pos, 3, caster)) {
-                Vector push = le.getLocation().toVector().subtract(pos.toVector());
-                if (push.length() < 0.1) push = new Vector(1, 0.5, 0);
-                else push = push.normalize().multiply(5.0).add(new Vector(0, 1, 0));
-                le.setVelocity(push);
-                le.damage(25, caster);
-                taskRef[0].cancel();
-            }
-        }, 0L, 1L);
-    }
-
-    // ===== HOLLOW PURPLE =====
+    // ===== HOLLOW PURPLE (Beam — requires RCT) =====
 
     public void castHollowPurple(Player p) {
         if (!checkTechnique(p)) return;
@@ -467,129 +572,200 @@ public final class LimitlessManager {
             p.sendMessage(plugin.cfg().prefix() + "§cHollow Purple requires §aReverse Cursed Technique§c!");
             return;
         }
-        if (!checkCooldown(p, "limitless_purple", 20)) return;
+        if (!checkCooldown(p, "limitless_purple", 60)) return;
 
-        int cost = effectiveCost(p, CE_COST_PURPLE);
+        int cost = effectiveCost(p, 0.50);
         if (!plugin.ce().tryConsume(p.getUniqueId(), cost)) {
             p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
             return;
         }
-
-        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_purple", 20);
+        plugin.cooldowns().setCooldown(p.getUniqueId(), "limitless_purple", 60);
 
         p.sendMessage(plugin.cfg().prefix() + "§5Hollow Purple §7— fired!");
-        p.playSound(p.getLocation(), Sound.ENTITY_WARDEN_SONIC_BOOM, 1.0f, 0.5f);
-        p.getWorld().playSound(p.getLocation(), Sound.BLOCK_END_PORTAL_SPAWN, 0.8f, 1.2f);
+        p.playSound(p.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.5f);
+        p.getWorld().playSound(p.getLocation(), Sound.ENTITY_ENDER_DRAGON_GROWL, 0.8f, 1.2f);
 
-        Location start = p.getEyeLocation();
-        Vector dir = p.getLocation().getDirection().normalize();
-        Particle.DustOptions dust = new Particle.DustOptions(Color.fromRGB(160, 0, 200), 2.5f);
-        Particle.DustOptions white = new Particle.DustOptions(Color.WHITE, 1.5f);
+        Location eye = p.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        World world = p.getWorld();
 
-        int[] ticks = {0};
+        // Raycast: max 100 blocks, destroy 3-block radius cylinder along entire path
+        double beamLength = 100.0;
+        for (double d = 0.5; d <= 100.0; d += 0.5) {
+            Location step = eye.clone().add(dir.clone().multiply(d));
+            if (step.getBlock().getType().isSolid()) {
+                beamLength = d;
+                break;
+            }
+        }
+
+        // Destroy blocks in 3-block radius cylinder and damage entities
+        final double finalBeamLength = beamLength;
         Set<UUID> hit = new HashSet<>();
-        BukkitTask[] taskRef = {null};
-
-        taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            ticks[0]++;
-            if (ticks[0] > 200) { taskRef[0].cancel(); return; } // max 10s travel
-
-            Location pos = start.clone().add(dir.clone().multiply(ticks[0] * 0.75));
-
-            // Particles
-            spawnSphereParticles(pos.getWorld(), pos, 1.5, 12, dust);
-            pos.getWorld().spawnParticle(Particle.DUST, pos, 3, 0.5, 0.5, 0.5, 0, white);
-
-            // Destroy blocks
-            if (ticks[0] % 3 == 0) destroyBlocksInRadius(pos, 2, p);
-
-            // Damage entities in radius
-            for (LivingEntity le : getEntitiesInRadius(pos, 3, p)) {
+        for (double d = 0; d <= finalBeamLength; d += 0.5) {
+            Location beamPt = eye.clone().add(dir.clone().multiply(d));
+            destroyBlocksInRadius(beamPt, 3, p);
+            // Damage entities within 3 blocks
+            for (LivingEntity le : getEntitiesInRadius(beamPt, 3.0, p)) {
                 if (!hit.contains(le.getUniqueId())) {
                     hit.add(le.getUniqueId());
-                    le.damage(50, p);
+                    le.damage(40.0, p);
                 }
             }
+        }
 
-            // Stop if hits a solid block
-            if (pos.getBlock().getType().isSolid()) {
-                taskRef[0].cancel();
-                pos.getWorld().spawnParticle(Particle.EXPLOSION, pos, 5, 1, 1, 1, 0);
+        // Spawn ItemDisplay beam, Z scale = beam length
+        Location midLoc = eye.clone().add(dir.clone().multiply(finalBeamLength / 2.0));
+        ItemDisplay display = world.spawn(midLoc, ItemDisplay.class, e -> {
+            e.setItemStack(new ItemStack(Material.CRYING_OBSIDIAN));
+            e.setTransformation(new Transformation(
+                    new Vector3f(0f, 0f, 0f),
+                    new Quaternionf(),
+                    new Vector3f(1.0f, 1.0f, (float) finalBeamLength),
+                    new Quaternionf()));
+            e.setRotation(eye.getYaw(), eye.getPitch());
+            e.setBrightness(new Display.Brightness(15, 15));
+        });
+
+        // DRAGON_BREATH + END_ROD particles along the beam
+        final Location fixedEye = eye.clone();
+        final Vector fixedDir = dir.clone();
+        BukkitTask[] particleRef = {null};
+        particleRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!display.isValid()) { particleRef[0].cancel(); return; }
+            for (double d = 0; d <= finalBeamLength; d += 3.0) {
+                Location sparkLoc = fixedEye.clone().add(fixedDir.clone().multiply(d));
+                world.spawnParticle(Particle.DRAGON_BREATH, sparkLoc, 3, 0.3, 0.3, 0.3, 0.01);
+                world.spawnParticle(Particle.END_ROD, sparkLoc, 0,
+                        fixedDir.getX() * 0.5, fixedDir.getY() * 0.5, fixedDir.getZ() * 0.5, 0.15);
             }
-        }, 0L, 1L);
+        }, 0L, 2L);
+
+        // Remove after 1.5 seconds
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (particleRef[0] != null) particleRef[0].cancel();
+            if (display.isValid()) display.remove();
+        }, 30L);
     }
 
-    // ===== HOLLOW PURPLE NUKE =====
+    // ===== HOLLOW NUKE =====
 
     public void castNuke(Player p) {
         if (!checkTechnique(p)) return;
 
-        PlayerProfile prof = plugin.data().get(p.getUniqueId());
-        if (!prof.limitlessCanNuke) {
-            p.sendMessage(plugin.cfg().prefix() + "§cNuke not available. Kill something with §bMax Blue §cfirst.");
+        // Need a locked Blue orb to target
+        UUID uuid = p.getUniqueId();
+        ItemDisplay lockedOrb = lockedBlueOrbs.get(uuid);
+        if (lockedOrb == null || !lockedOrb.isValid()) {
+            p.sendMessage(plugin.cfg().prefix() + "§cNo locked Blue orb. Use §bBlue Max§c, kill something, then Shift to lock it.");
             return;
         }
 
-        Location bluePos = stationaryBlueSpheres.get(p.getUniqueId());
-        if (bluePos == null) {
-            p.sendMessage(plugin.cfg().prefix() + "§cNo stationary Blue sphere. Use §bBlue Max§c and anchor it first.");
-            return;
-        }
+        // CE cost: 0 (already paid for Blue Max + Red implicitly)
+        p.sendMessage(plugin.cfg().prefix() + "§5§lHOLLOW PURPLE NUKE §7— Red orb incoming!");
 
-        int cost = effectiveCost(p, CE_COST_NUKE);
-        if (!plugin.ce().tryConsume(p.getUniqueId(), cost)) {
-            p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
-            return;
-        }
+        // Fire a Red orb toward the locked Blue orb
+        Location eye = p.getEyeLocation();
+        Location bluePos = lockedOrb.getLocation().clone();
+        Vector toward = bluePos.toVector().subtract(eye.toVector()).normalize();
+        World world = p.getWorld();
 
-        // Launch red max, it will auto-trigger nuke when it hits blue
-        setCanNuke(p, false);
-        launchRedMax(p);
+        // Spawn Red orb at eye location
+        ItemDisplay redOrb = world.spawn(eye.clone(), ItemDisplay.class, e -> {
+            e.setItemStack(new ItemStack(Material.NETHER_BRICK));
+            e.setTransformation(new Transformation(
+                    new Vector3f(0f, 0f, 0f),
+                    new Quaternionf(),
+                    new Vector3f(0.6f, 0.6f, 0.6f),
+                    new Quaternionf()));
+            e.setBrightness(new Display.Brightness(15, 15));
+        });
 
-        p.sendMessage(plugin.cfg().prefix() + "§5§lHOLLOW PURPLE NUKE §7— incoming!");
+        final int[] step = {0};
+        final double distance = eye.distance(bluePos);
+        final int maxSteps = (int) (distance / 0.5) + 10;
+        BukkitTask[] travelRef = {null};
+        travelRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!redOrb.isValid()) { travelRef[0].cancel(); return; }
+            step[0]++;
+            Location pos = eye.clone().add(toward.clone().multiply(step[0] * 0.5));
+            redOrb.teleport(pos);
+            world.spawnParticle(Particle.FLAME, pos, 3, 0.1, 0.1, 0.1, 0.02);
+
+            // Check collision with locked Blue orb (within 2 blocks)
+            ItemDisplay currentBlue = lockedBlueOrbs.get(uuid);
+            if (currentBlue != null && currentBlue.isValid() && pos.distance(currentBlue.getLocation()) < 2.0) {
+                travelRef[0].cancel();
+                if (redOrb.isValid()) redOrb.remove();
+                triggerNuke(p, currentBlue.getLocation().clone());
+                return;
+            }
+
+            if (step[0] >= maxSteps) {
+                travelRef[0].cancel();
+                if (redOrb.isValid()) redOrb.remove();
+            }
+        }, 0L, 1L);
     }
 
     private void triggerNuke(Player caster, Location center) {
-        // Clean up stationary sphere
         UUID uuid = caster.getUniqueId();
-        BukkitTask task = stationaryBlueTasks.remove(uuid);
+
+        // Remove locked Blue orb
+        ItemDisplay blueOrb = lockedBlueOrbs.remove(uuid);
+        if (blueOrb != null && blueOrb.isValid()) blueOrb.remove();
+        activeBlueMaxOrbs.remove(uuid);
+        BukkitTask task = blueMaxActiveTasks.remove(uuid);
         if (task != null) task.cancel();
-        stationaryBlueSpheres.remove(uuid);
+        canLockBlue.remove(uuid);
 
         World w = center.getWorld();
         if (w == null) return;
 
-        // Screen shake simulation
-        caster.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 30, 0, false, false, false));
-        w.playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 4.0f, 0.3f);
-        w.playSound(center, Sound.ENTITY_WARDEN_SONIC_BOOM, 3.0f, 0.3f);
-
-        // Massive explosion — 50+ block radius
-        int nukeRadius = 55;
-        Particle.DustOptions purple = new Particle.DustOptions(Color.fromRGB(160, 0, 200), 3.0f);
-        Particle.DustOptions white = new Particle.DustOptions(Color.WHITE, 2.5f);
-
-        // Massive particle burst
-        w.spawnParticle(Particle.EXPLOSION, center, 20, nukeRadius / 4.0, nukeRadius / 4.0, nukeRadius / 4.0, 0);
-        w.spawnParticle(Particle.DUST, center, 500, nukeRadius / 2.0, nukeRadius / 2.0, nukeRadius / 2.0, 0, purple);
-        w.spawnParticle(Particle.DUST, center, 300, nukeRadius / 3.0, nukeRadius / 3.0, nukeRadius / 3.0, 0, white);
-
-        // Damage all entities in range (100+ damage)
-        for (LivingEntity le : getEntitiesInRadius(center, nukeRadius, null)) {
-            if (le instanceof Player lp && lp.getUniqueId().equals(caster.getUniqueId())) {
-                // User takes ~30 damage but won't die (set to 1 HP min)
-                double surviveDmg = Math.min(30.0, lp.getHealth() - 2.0);
-                if (surviveDmg > 0) lp.damage(surviveDmg, caster);
-            } else {
-                le.damage(120, caster);
+        // Screen shake: send rapid title packets to all players within 50 blocks
+        for (Player nearby : w.getPlayers()) {
+            if (nearby.getLocation().distance(center) <= 50) {
+                // Rapid title flashes simulate screen shake
+                final int[] shakeCount = {0};
+                BukkitTask[] shakeRef = {null};
+                shakeRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+                    shakeCount[0]++;
+                    if (shakeCount[0] > 10) {
+                        shakeRef[0].cancel();
+                        nearby.resetTitle();
+                        return;
+                    }
+                    nearby.sendTitle("§5§l✦", "§7", 0, 2, 0);
+                }, 0L, 1L);
             }
         }
 
-        // Destroy blocks in a huge radius (do this in stages to avoid lag)
-        Bukkit.getScheduler().runTaskLater(plugin, () ->
-                destroyBlocksInRadius(center, nukeRadius / 2, caster), 5L);
+        // Sounds
+        w.playSound(center, Sound.ENTITY_WITHER_SPAWN, 4.0f, 0.3f);
+        w.playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 4.0f, 0.3f);
 
-        // Notify caster
+        // Particles
+        w.spawnParticle(Particle.EXPLOSION, center, 20, 10, 10, 10, 0);
+        Particle.DustOptions purple = new Particle.DustOptions(Color.fromRGB(160, 0, 200), 3.0f);
+        Particle.DustOptions white = new Particle.DustOptions(Color.WHITE, 2.5f);
+        w.spawnParticle(Particle.FLAME, center, 200, 8, 8, 8, 0.2);
+        w.spawnParticle(Particle.DUST, center, 500, 10, 10, 10, 0, purple);
+        w.spawnParticle(Particle.DUST, center, 300, 7, 7, 7, 0, white);
+
+        // Deal 60 damage to all entities within 15 blocks
+        for (LivingEntity le : getEntitiesInRadius(center, 15, null)) {
+            if (le instanceof Player lp && lp.getUniqueId().equals(caster.getUniqueId())) {
+                double surviveDmg = Math.min(30.0, lp.getHealth() - 2.0);
+                if (surviveDmg > 0) lp.damage(surviveDmg, caster);
+            } else {
+                le.damage(60.0, caster);
+            }
+        }
+
+        // Destroy blocks in 15-block radius sphere
+        Bukkit.getScheduler().runTaskLater(plugin, () ->
+                destroyBlocksInRadius(center, 15, caster), 5L);
+
         caster.sendMessage(plugin.cfg().prefix() + "§5§lHOLLOW PURPLE NUKE §7detonated!");
     }
 
@@ -599,7 +775,7 @@ public final class LimitlessManager {
         if (!checkTechnique(p)) return;
         if (!checkCooldown(p, "domain_infinite_void", 300)) return;
 
-        int cost = effectiveCost(p, 5);
+        int cost = effectiveCost(p, 0.50);
         if (!plugin.ce().tryConsume(p.getUniqueId(), cost)) {
             p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
             return;
@@ -612,18 +788,6 @@ public final class LimitlessManager {
 
     // ===== Utilities =====
 
-    private Location findTargetLocation(Player p, int maxBlocks) {
-        Location eye = p.getEyeLocation();
-        Vector dir = p.getLocation().getDirection().normalize();
-        for (int i = 1; i <= maxBlocks; i++) {
-            Location loc = eye.clone().add(dir.clone().multiply(i));
-            if (loc.getBlock().getType().isSolid()) {
-                return loc.clone().subtract(dir);
-            }
-        }
-        return eye.clone().add(dir.clone().multiply(maxBlocks));
-    }
-
     private List<LivingEntity> getEntitiesInRadius(Location center, double radius, Player exclude) {
         List<LivingEntity> result = new ArrayList<>();
         if (center.getWorld() == null) return result;
@@ -633,19 +797,6 @@ public final class LimitlessManager {
             if (e.getLocation().distance(center) <= radius) result.add(le);
         }
         return result;
-    }
-
-    private void spawnSphereParticles(World w, Location center, double radius, int count, Particle.DustOptions dust) {
-        if (w == null) return;
-        double step = Math.PI * 2.0 / count;
-        for (int i = 0; i < count; i++) {
-            double theta = step * i;
-            double phi = (System.currentTimeMillis() % 6000) / 6000.0 * Math.PI;
-            double x = radius * Math.sin(phi) * Math.cos(theta);
-            double y = radius * Math.cos(phi);
-            double z = radius * Math.sin(phi) * Math.sin(theta);
-            w.spawnParticle(Particle.DUST, center.clone().add(x, y, z), 1, 0, 0, 0, 0, dust);
-        }
     }
 
     private void destroyBlocksInRadius(Location center, int radius, Player ignore) {
@@ -666,18 +817,34 @@ public final class LimitlessManager {
         }
     }
 
-    /** Called when a player leaves to clean up their Infinity state. */
+    /** Called when a player leaves to clean up their Infinity state and Blue orbs. */
     public void onPlayerQuit(UUID uuid) {
         BukkitTask t = infinityParticleTasks.remove(uuid);
         if (t != null) t.cancel();
-        BukkitTask b = stationaryBlueTasks.remove(uuid);
-        if (b != null) b.cancel();
-        stationaryBlueSpheres.remove(uuid);
-        BukkitTask r = redMaxHoldTasks.remove(uuid);
-        if (r != null) r.cancel();
+
+        // Cleanup Blue orbs
+        ItemDisplay blueOrb = activeBlueOrbs.remove(uuid);
+        if (blueOrb != null && blueOrb.isValid()) blueOrb.remove();
+
+        ItemDisplay blueMaxOrb = activeBlueMaxOrbs.remove(uuid);
+        if (blueMaxOrb != null && blueMaxOrb.isValid()) blueMaxOrb.remove();
+
+        BukkitTask blueTask = blueMaxActiveTasks.remove(uuid);
+        if (blueTask != null) blueTask.cancel();
+
+        ItemDisplay lockedOrb = lockedBlueOrbs.remove(uuid);
+        if (lockedOrb != null && lockedOrb.isValid()) lockedOrb.remove();
+
+        canLockBlue.remove(uuid);
     }
 
+    /**
+     * Returns the location of the player's locked Blue Max orb (for status display).
+     * Returns null if there is no locked orb.
+     */
     public Location getStationaryBlueLocation(UUID uuid) {
-        return stationaryBlueSpheres.get(uuid);
+        ItemDisplay orb = lockedBlueOrbs.get(uuid);
+        if (orb == null || !orb.isValid()) return null;
+        return orb.getLocation();
     }
 }

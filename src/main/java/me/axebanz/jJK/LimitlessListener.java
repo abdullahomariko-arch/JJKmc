@@ -6,9 +6,10 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
-import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.util.Vector;
 
 import java.util.*;
@@ -17,6 +18,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Handles Limitless Technique events:
  * - Infinity: blocks projectiles and melee attacks
+ * - Blue Max: EntityDeathEvent marks kill → orb becomes lockable
+ * - Blue Max: PlayerToggleSneakEvent to lock/unlock the orb
  */
 public final class LimitlessListener implements Listener {
 
@@ -73,6 +76,49 @@ public final class LimitlessListener implements Listener {
         org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (proj.isValid()) proj.remove();
         }, 200L);
+    }
+
+    /**
+     * Blue Max kill detection — when a Limitless player kills something
+     * while their Blue Max orb is active, mark the orb as lockable.
+     */
+    @EventHandler
+    public void onEntityDeath(EntityDeathEvent e) {
+        Player killer = e.getEntity().getKiller();
+        if (killer == null) return;
+
+        String assignedId = plugin.techniqueManager().getAssignedId(killer.getUniqueId());
+        if (!"limitless".equalsIgnoreCase(assignedId)) return;
+
+        // Check if they have an active Blue Max orb
+        if (manager.hasActiveBluMaxOrb(killer)) {
+            manager.markCanLockBlue(killer);
+            killer.sendMessage(plugin.cfg().prefix() + "§b§lBlue orb §7is now lockable! §eShift to lock.");
+        }
+    }
+
+    /**
+     * Blue Max sneak toggle — locking and unlocking the Blue orb.
+     * Lock: if player starts sneaking AND canLock → lock orb
+     * Unlock: if player stops sneaking AND has locked orb → remove orb
+     */
+    @EventHandler
+    public void onSneak(PlayerToggleSneakEvent e) {
+        Player p = e.getPlayer();
+        String assignedId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
+        if (!"limitless".equalsIgnoreCase(assignedId)) return;
+
+        if (e.isSneaking()) {
+            // Player just started sneaking — try to lock the Blue Max orb
+            if (manager.hasActiveBluMaxOrb(p) && manager.canLockBlue(p)) {
+                manager.lockBlueOrb(p);
+            }
+        } else {
+            // Player stopped sneaking — release the locked Blue orb
+            if (manager.hasLockedBlueOrb(p)) {
+                manager.removeLockedBlueOrb(p);
+            }
+        }
     }
 
     /** Player disconnect — clean up Infinity state */
