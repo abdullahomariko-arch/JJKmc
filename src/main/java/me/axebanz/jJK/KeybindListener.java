@@ -80,12 +80,30 @@ public final class KeybindListener implements Listener {
         Player p = e.getPlayer();
         if (e.isSneaking()) {
             // Sneak START — register hold time
-            keybindManager.onKeyPress(p, "SHIFT");
+            String ability = keybindManager.onKeyPress(p, "SHIFT");
+            // If the bound ability is blast-related, start charging
+            if (ability != null && isBlastAbility(ability)) {
+                EnergyDischargeManager ed = plugin.energyDischarge();
+                if (ed != null) ed.startBlastCharge(p);
+            }
         } else {
             // Sneak END — fire ability, max-output if held 2+ seconds
             KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "SHIFT");
-            if (result != null) executeAbility(p, result.ability, result.maxOutput);
+            if (result != null) {
+                if (isBlastAbility(result.ability)) {
+                    EnergyDischargeManager ed = plugin.energyDischarge();
+                    if (ed != null) ed.releaseBlastCharge(p);
+                } else {
+                    executeAbility(p, result.ability, result.maxOutput);
+                }
+            }
         }
+    }
+
+    /** Returns true if the ability string refers to Granite Blast. */
+    private boolean isBlastAbility(String ability) {
+        String lower = ability.toLowerCase(java.util.Locale.ROOT);
+        return lower.equals("blast") || lower.equals("granite_blast");
     }
 
     // ───────────────────────── Right / Left Click ─────────────────────────
@@ -122,7 +140,7 @@ public final class KeybindListener implements Listener {
     private void executeAbility(Player p, String ability, boolean maxOutput) {
         LimitlessManager limitless = plugin.limitless();
 
-        switch (ability.toLowerCase()) {
+        switch (ability.toLowerCase(java.util.Locale.ROOT)) {
             case "infinity" -> {
                 if (limitless != null) limitless.toggleInfinity(p);
             }
@@ -152,6 +170,21 @@ public final class KeybindListener implements Listener {
             }
             case "void", "infinitevoid" -> {
                 if (limitless != null) limitless.castInfiniteVoid(p);
+            }
+            case "blast", "granite_blast" -> {
+                EnergyDischargeManager ed = plugin.energyDischarge();
+                if (ed != null) {
+                    GraniteBlastSession session = ed.getBlastSession(p.getUniqueId());
+                    if (session != null && session.isCharging()) {
+                        ed.releaseBlastCharge(p);
+                    } else {
+                        ed.startBlastCharge(p);
+                    }
+                }
+            }
+            case "tracking", "tracking_beam" -> {
+                EnergyDischargeManager ed = plugin.energyDischarge();
+                if (ed != null) ed.startTrackingCharge(p);
             }
             default -> p.sendMessage(plugin.cfg().prefix() + "§cUnknown ability: §f" + ability);
         }
