@@ -5,6 +5,7 @@ import org.bukkit.entity.*;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
@@ -19,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Passive  — Enhanced Strikes: 1.5x melee damage + blue particles, 20% damage reduction.
  * Ability 1 — Tracking Beams: chargeable homing beam, up to 2 seconds for full power.
- * Ability 2 — Granite Blast: 3-phase ultimate beam (1s / 3s / 5s charge).
+ * Ability 2 — Granite Blast: hold-and-release with 3 tiers (LOW projectile, MEDIUM/HIGH beam).
  */
 public final class EnergyDischargeManager {
 
@@ -32,20 +33,18 @@ public final class EnergyDischargeManager {
     private static final Particle.DustOptions BLUE_OUTER  = new Particle.DustOptions(Color.fromRGB(150, 200, 255), 0.8f);
     private static final Particle.DustOptions BLUE_HIT    = new Particle.DustOptions(Color.fromRGB(0, 150, 255), 1.5f);
     private static final Particle.DustOptions BLUE_STRIKE = new Particle.DustOptions(Color.fromRGB(0, 150, 255), 1.5f);
+    // Sandy brown for granite spiral particles
+    private static final Particle.DustOptions GRANITE_SPIRAL = new Particle.DustOptions(Color.fromRGB(205, 133, 63), 0.8f);
 
     // Tracking beam charge state: UUID → charge start time (ms)
     private final Map<UUID, Long> trackingChargeStart = new ConcurrentHashMap<>();
     private final Map<UUID, BukkitTask> trackingChargeTasks = new ConcurrentHashMap<>();
 
-    // Granite blast charge state: UUID → charge start time (ms)
-    private final Map<UUID, Long> blastChargeStart = new ConcurrentHashMap<>();
-    private final Map<UUID, BukkitTask> blastChargeTasks = new ConcurrentHashMap<>();
+    // ── Granite Blast sessions ────────────────────────────────────────────────
+    private final Map<UUID, GraniteBlastSession> blastSessions = new ConcurrentHashMap<>();
 
-    // Active blast tasks (so we can cancel on early release / disable)
-    private final Map<UUID, BukkitTask> activeBlastTasks = new ConcurrentHashMap<>();
-
-    // Phase 3: players locked in place
-    private final Set<UUID> lockedPlayers = ConcurrentHashMap.newKeySet();
+    // ── Beam config inner record ──────────────────────────────────────────────
+    private record BeamConfig(float thickness, float length, int durationTicks, double damage, int ceCost) {}
 
     public EnergyDischargeManager(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
@@ -81,9 +80,9 @@ public final class EnergyDischargeManager {
         event.setDamage(event.getDamage() * 0.80);
     }
 
-    /** Whether a player is currently locked (Phase 3 blast). */
+    /** Whether a player is currently movement-locked (no-op in the new Granite Blast system). */
     public boolean isLocked(UUID uuid) {
-        return lockedPlayers.contains(uuid);
+        return false;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -250,17 +249,12 @@ public final class EnergyDischargeManager {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ABILITY 2 — GRANITE BLAST (3 PHASES)
+    // ABILITY 2 — GRANITE BLAST (hold-and-release, 3 tiers)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Starts Granite Blast charging.
-     * Fires based on charge duration:
-     *   ≥ 5s → Phase 3 (Maximum Output)
-     *   ≥ 3s → Phase 2
-     *   ≥ 1s → Phase 1
-     *   < 1s → tells player to charge longer
-     * Calling again while charging fires immediately.
+     * Begins Granite Blast charging for the player.
+     * If the player is already charging, this call is ignored (use releaseBlastCharge to fire).
      */
     public void startBlastCharge(Player p) {
         if (!hasTechnique(p)) {
@@ -269,263 +263,329 @@ public final class EnergyDischargeManager {
         }
         UUID uuid = p.getUniqueId();
 
-        // Already charging → fire at current phase
-        if (blastChargeStart.containsKey(uuid)) {
-            fireGraniteBlast(p, currentBlastPhase(uuid));
-            return;
-        }
+        // Already charging — ignore (release is triggered separately)
+        if (blastSessions.containsKey(uuid) && blastSessions.get(uuid).isCharging()) return;
 
-        // Phase-based cooldown checks
         if (plugin.cooldowns().isOnCooldown(uuid, "ed.blast")) {
             long rem = plugin.cooldowns().remainingSeconds(uuid, "ed.blast");
             p.sendMessage(plugin.cfg().prefix() + "§cGranite Blast on cooldown: §f" + rem + "s");
             return;
         }
 
-        blastChargeStart.put(uuid, System.currentTimeMillis());
+        GraniteBlastSession session = new GraniteBlastSession();
+        session.startCharging();
+        blastSessions.put(uuid, session);
 
-        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!p.isOnline()) { cancelBlastCharge(uuid); return; }
-            long elapsed = System.currentTimeMillis() - blastChargeStart.getOrDefault(uuid, 0L);
-            int phase = currentBlastPhase(uuid);
-
-            String phaseStr = phase == 0 ? "§7Charging..." : "§bPhase " + phase;
-            String bar = buildChargeBar(elapsed);
-            p.sendActionBar("§b⚡ Granite Blast: " + phaseStr + " " + bar);
-
-            // Auto-fire at max charge (5 seconds)
-            if (elapsed >= 5000) {
-                fireGraniteBlast(p, 3);
-            }
-        }, 0L, 4L);
-
-        blastChargeTasks.put(uuid, task);
-    }
-
-    private int currentBlastPhase(UUID uuid) {
-        Long start = blastChargeStart.get(uuid);
-        if (start == null) return 0;
-        long elapsed = System.currentTimeMillis() - start;
-        if (elapsed >= 5000) return 3;
-        if (elapsed >= 3000) return 2;
-        if (elapsed >= 1000) return 1;
-        return 0;
-    }
-
-    private String buildChargeBar(long elapsedMs) {
-        int filled = (int) Math.min(10, elapsedMs / 500);
-        return "[§b" + "│".repeat(filled) + "§7" + "│".repeat(10 - filled) + "§7]";
-    }
-
-    private void cancelBlastCharge(UUID uuid) {
-        blastChargeStart.remove(uuid);
-        BukkitTask t = blastChargeTasks.remove(uuid);
-        if (t != null) t.cancel();
-    }
-
-    private void fireGraniteBlast(Player p, int phase) {
-        UUID uuid = p.getUniqueId();
-        cancelBlastCharge(uuid);
-
-        if (phase == 0) {
-            p.sendMessage(plugin.cfg().prefix() + "§cCharge longer! (Phase 1 = 1s, Phase 2 = 3s, Phase 3 = 5s)");
-            return;
+        // Spawn charge visual above the player's head
+        Location spawnLoc = p.getLocation().add(0, 2.5, 0);
+        ItemDisplay chargeDisplay = (ItemDisplay) p.getWorld().spawnEntity(spawnLoc, EntityType.ITEM_DISPLAY);
+        ItemStack chargeItem = new ItemStack(Material.PAPER);
+        ItemMeta chargeMeta = chargeItem.getItemMeta();
+        if (chargeMeta != null) {
+            chargeMeta.setItemModel(new NamespacedKey("mybeam", "granite_charge"));
+            chargeItem.setItemMeta(chargeMeta);
         }
+        chargeDisplay.setItemStack(chargeItem);
+        chargeDisplay.setBrightness(new Display.Brightness(15, 15));
+        chargeDisplay.setTeleportDuration(1);
+        chargeDisplay.setTransformation(new Transformation(
+                new Vector3f(0f, 0f, 0f),
+                new Quaternionf(),
+                new Vector3f(0.3f, 0.3f, 0.3f),
+                new Quaternionf()
+        ));
+        session.chargeVisualEntity = chargeDisplay;
 
-        // CE cost
-        double cePct = phase == 1 ? 0.10 : (phase == 2 ? 0.25 : 0.50);
-        int ceCost = (int) (plugin.ce().max(uuid) * cePct);
-        if (!plugin.ce().tryConsume(uuid, ceCost)) {
-            p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
-            return;
-        }
-
-        // Cooldown
-        long cooldown = phase == 1 ? 15 : (phase == 2 ? 30 : 60);
-        plugin.cooldowns().setCooldown(uuid, "ed.blast", cooldown);
-
-        // Phase 3: announce, lock player
-        if (phase == 3) {
-            p.sendMessage("§b§l⚡ YOU HAVE REACHED THE HIGHEST CE OUTPUT!");
-            p.getWorld().playSound(p.getLocation(), Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 2.0f, 0.5f);
-            p.getWorld().playSound(p.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.8f);
-            lockedPlayers.add(uuid);
-        }
-
-        // Beam parameters per phase
-        double range = phase == 1 ? 30 : (phase == 2 ? 50 : 100);
-        double damagePerSec = phase == 1 ? 15 : (phase == 2 ? 25 : 50);
-        int durationSecs = phase == 1 ? 5 : (phase == 2 ? 8 : 10);
-        double halfWidth = phase == 1 ? 0.5 : (phase == 2 ? 1.0 : 2.0);
-
-        launchGraniteBlastBeam(p, phase, range, damagePerSec, durationSecs, halfWidth);
-        spawnBeamVisual(p, phase, range, durationSecs * 20);
-    }
-
-    private void launchGraniteBlastBeam(Player p, int phase, double range, double damagePerSec, int durationSecs, double halfWidth) {
-        UUID uuid = p.getUniqueId();
-        World world = p.getWorld();
-        long endTime = System.currentTimeMillis() + durationSecs * 1000L;
-        Set<UUID> hitThisTick = new HashSet<>();
-
-        // Phase 3: screen shake for nearby players
-        if (phase == 3) {
-            Bukkit.getScheduler().runTaskTimer(plugin, task -> {
-                if (System.currentTimeMillis() >= endTime) { task.cancel(); return; }
-                for (Player nearby : world.getPlayers()) {
-                    if (nearby.getLocation().distance(p.getLocation()) <= 40) {
-                        nearby.sendTitle("", "§b⚡", 0, 5, 5);
-                    }
-                }
-            }, 0L, 10L);
-        }
-
-        BukkitTask beamTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!p.isOnline() || System.currentTimeMillis() >= endTime) {
-                cleanupBlast(uuid, phase);
+        // Repeating task: update percent, move visual, update scale, show glyph bar
+        BukkitTask chargeTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!p.isOnline()) {
+                cancelBlastCharge(p);
                 return;
             }
+            session.updateChargePercent();
+            int pct = session.getChargePercent();
 
-            // Phase 3: keep player frozen
-            if (phase == 3 && lockedPlayers.contains(uuid)) {
-                p.setVelocity(new Vector(0, 0, 0));
+            // Move charge visual above player every tick
+            Location headLoc = p.getLocation().add(0, 2.5, 0);
+            if (session.chargeVisualEntity != null && session.chargeVisualEntity.isValid()) {
+                session.chargeVisualEntity.teleport(headLoc);
+                // Scale from 0.3 to 1.0 based on percent
+                float scale = 0.3f + (0.7f * pct / 100f);
+                session.chargeVisualEntity.setTransformation(new Transformation(
+                        new Vector3f(0f, 0f, 0f),
+                        new Quaternionf(),
+                        new Vector3f(scale, scale, scale),
+                        new Quaternionf()
+                ));
             }
 
-            Location eyeLoc = p.getEyeLocation();
-            Vector dir = eyeLoc.getDirection().normalize();
-            hitThisTick.clear();
+            GlyphChargeBar.showChargeBar(p, pct);
 
-            // Spawn dense beam particles along the ray
-            double step = phase == 3 ? 0.05 : 0.1;
-            for (double d = 0.5; d <= range; d += step) {
-                Location center = eyeLoc.clone().add(dir.clone().multiply(d));
-
-                // Stop if we hit a solid block (but NOT at player's feet)
-                if (d > 1.0 && center.getBlock().getType().isSolid()) {
-                    if (phase == 3) {
-                        // Destroy blocks at the END of the beam
-                        center.getBlock().setType(Material.AIR);
-                    }
-                    break;
-                }
-
-                // Phase 1: 3–5 particles per point
-                int coreCount = phase == 1 ? 4 : (phase == 2 ? 6 : 12);
-                world.spawnParticle(Particle.DUST, center, coreCount, halfWidth * 0.3, halfWidth * 0.3, halfWidth * 0.3, 0, BLUE_CORE);
-
-                // Outer ring / sparkle
-                if (phase >= 2) {
-                    world.spawnParticle(Particle.DUST, center, coreCount / 2, halfWidth * 0.6, halfWidth * 0.6, halfWidth * 0.6, 0, BLUE_MID);
-                }
-                if (phase == 3) {
-                    world.spawnParticle(Particle.DUST, center, 4, halfWidth * 0.9, halfWidth * 0.9, halfWidth * 0.9, 0, BLUE_OUTER);
-                    world.spawnParticle(Particle.END_ROD, center, 2, halfWidth * 0.5, halfWidth * 0.5, halfWidth * 0.5, 0.05);
-                }
-
-                // Hit detection — check cylinder of halfWidth radius
-                for (Entity ent : world.getNearbyEntities(center, halfWidth, halfWidth, halfWidth)) {
-                    if (!(ent instanceof LivingEntity le)) continue;
-                    if (ent.getUniqueId().equals(uuid)) continue;
-                    if (hitThisTick.contains(ent.getUniqueId())) continue;
-                    hitThisTick.add(ent.getUniqueId());
-                    // Damage is per second; beam runs at 1 tick intervals, so divide by 20
-                    le.damage(damagePerSec / 20.0, p);
-                }
+            // Auto-fire at full charge
+            if (pct >= 100) {
+                releaseBlastCharge(p);
             }
         }, 0L, 1L);
 
-        activeBlastTasks.put(uuid, beamTask);
+        session.chargingTask = chargeTask;
     }
 
-    private void cleanupBlast(UUID uuid, int phase) {
-        BukkitTask t = activeBlastTasks.remove(uuid);
-        if (t != null) t.cancel();
-        if (phase == 3) {
-            lockedPlayers.remove(uuid);
+    /**
+     * Releases Granite Blast, firing based on the current charge tier.
+     * If the player is not charging, this call is ignored.
+     */
+    public void releaseBlastCharge(Player p) {
+        UUID uuid = p.getUniqueId();
+        GraniteBlastSession session = blastSessions.get(uuid);
+        if (session == null || !session.isCharging()) return;
+
+        GraniteBlastSession.ChargeTier tier = session.release();
+
+        // Stop charge task and clear UI
+        if (session.chargingTask != null) {
+            session.chargingTask.cancel();
+            session.chargingTask = null;
         }
-        Player p = Bukkit.getPlayer(uuid);
-        if (p != null && p.isOnline()) {
-            p.sendActionBar("§b⚡ Granite Blast complete.");
+        GlyphChargeBar.clearChargeBar(p);
+
+        // Remove charge visual immediately for LOW, keep briefly for MEDIUM/HIGH
+        if (tier == GraniteBlastSession.ChargeTier.LOW) {
+            if (session.chargeVisualEntity != null && session.chargeVisualEntity.isValid()) {
+                session.chargeVisualEntity.remove();
+            }
+            session.chargeVisualEntity = null;
+        } else {
+            // Remove charge orb after a short delay for medium/high
+            if (session.chargeVisualEntity != null && session.chargeVisualEntity.isValid()) {
+                ItemDisplay orb = session.chargeVisualEntity;
+                session.chargeVisualEntity = null;
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                    if (orb.isValid()) orb.remove();
+                }, 10L);
+            }
+        }
+
+        switch (tier) {
+            case LOW    -> fireBlastProjectile(p, session);
+            case MEDIUM -> fireBlastBeam(p, session, getMediumConfig(uuid));
+            case HIGH   -> fireBlastBeam(p, session, getHighConfig(uuid));
         }
     }
 
     /**
-     * Spawns an ItemDisplay beam entity along the player's look direction.
-     * Scale Z = beam length, X/Y = thickness (phase-based).
-     * Traveling END_ROD particles run for the duration, then the display
-     * shrinks X and Y to 0 via interpolation (Red's disappear technique).
-     *
-     * @param p            the caster
-     * @param phase        1, 2, or 3
-     * @param maxRange     maximum beam length in blocks
-     * @param durationTicks how many ticks before the disappear animation starts
+     * Cancels an active Granite Blast charge without firing.
      */
-    private void spawnBeamVisual(Player p, int phase, double maxRange, int durationTicks) {
-        Location eyeLoc = p.getEyeLocation();
-        Vector dir = eyeLoc.getDirection().normalize();
-        World world = p.getWorld();
+    public void cancelBlastCharge(Player p) {
+        UUID uuid = p.getUniqueId();
+        GraniteBlastSession session = blastSessions.remove(uuid);
+        if (session == null) return;
+        GlyphChargeBar.clearChargeBar(p);
+        session.cancel();
+        session.cleanup();
+    }
 
-        // Raycast: find where beam hits a solid block
-        double beamLength = maxRange;
-        for (double d = 0.5; d <= maxRange; d += 0.5) {
-            Location step = eyeLoc.clone().add(dir.clone().multiply(d));
-            if (step.getBlock().getType().isSolid()) {
-                beamLength = d;
-                break;
-            }
+    // ── Beam configs ─────────────────────────────────────────────────────────
+
+    private BeamConfig getMediumConfig(UUID uuid) {
+        int ceCost = (int) (plugin.ce().max(uuid) * 0.25);
+        return new BeamConfig(0.4f, 12f, 40, 8.0, ceCost);
+    }
+
+    private BeamConfig getHighConfig(UUID uuid) {
+        int ceCost = (int) (plugin.ce().max(uuid) * 0.50);
+        return new BeamConfig(0.8f, 20f, 80, 16.0, ceCost);
+    }
+
+    // ── LOW — small projectile ────────────────────────────────────────────────
+
+    private void fireBlastProjectile(Player p, GraniteBlastSession session) {
+        UUID uuid = p.getUniqueId();
+        int ceCost = (int) (plugin.ce().max(uuid) * 0.10);
+        if (!plugin.ce().tryConsume(uuid, ceCost)) {
+            p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
+            blastSessions.remove(uuid);
+            session.cleanup();
+            return;
         }
+        plugin.cooldowns().setCooldown(uuid, "ed.blast", 15);
 
-        // Spawn ItemDisplay at beam midpoint
-        Location midLoc = eyeLoc.clone().add(dir.clone().multiply(beamLength / 2.0));
-        float thickness = switch (phase) {
-            case 1 -> 0.8f;
-            case 2 -> 1.5f;
-            case 3 -> 3.0f;
-            default -> 1.0f; // fallback; only phases 1-3 are valid
-        };
-
-        ItemDisplay display = (ItemDisplay) world.spawnEntity(midLoc, EntityType.ITEM_DISPLAY);
-        display.setItemStack(new ItemStack(Material.BLAZE_ROD)); // placeholder until Nexo model
-        display.setRotation(eyeLoc.getYaw(), eyeLoc.getPitch());
-        display.setBrightness(new Display.Brightness(15, 15));
-        display.setTransformation(new Transformation(
+        // Spawn small ItemDisplay projectile
+        Location eyeLoc = p.getEyeLocation();
+        ItemDisplay proj = (ItemDisplay) p.getWorld().spawnEntity(eyeLoc, EntityType.ITEM_DISPLAY);
+        ItemStack projItem = new ItemStack(Material.PAPER);
+        ItemMeta projMeta = projItem.getItemMeta();
+        if (projMeta != null) {
+            projMeta.setItemModel(new NamespacedKey("mybeam", "granite_blast2"));
+            projItem.setItemMeta(projMeta);
+        }
+        proj.setItemStack(projItem);
+        proj.setBrightness(new Display.Brightness(15, 15));
+        proj.setTransformation(new Transformation(
                 new Vector3f(0f, 0f, 0f),
                 new Quaternionf(),
-                new Vector3f(thickness, thickness, (float) beamLength),
+                new Vector3f(0.25f, 0.25f, 0.75f),
                 new Quaternionf()
         ));
+        proj.setRotation(eyeLoc.getYaw(), eyeLoc.getPitch());
+        session.beamEntity = proj;
 
-        // Traveling END_ROD particles along the beam every 2 ticks (use fixed direction from beam creation)
-        final double finalBeamLength = beamLength;
-        final Location fixedEye = eyeLoc.clone();
-        final Vector fixedDir = dir.clone();
-        BukkitTask[] particleRef = {null};
-        particleRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!display.isValid()) {
-                particleRef[0].cancel();
+        Vector dir = eyeLoc.getDirection().normalize();
+        double[] pos = { eyeLoc.getX(), eyeLoc.getY(), eyeLoc.getZ() };
+        double[] distTravelled = { 0.0 };
+        double speed = 1.5;
+        double maxDist = 20.0;
+        double damage = 4.0;
+
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!p.isOnline() || !proj.isValid()) {
+                session.cleanup();
+                blastSessions.remove(uuid);
                 return;
             }
-            for (double d = 0; d <= finalBeamLength; d += 2.0) {
-                Location sparkLoc = fixedEye.clone().add(fixedDir.clone().multiply(d));
-                world.spawnParticle(Particle.END_ROD, sparkLoc, 0,
-                        fixedDir.getX() * 0.5, fixedDir.getY() * 0.5, fixedDir.getZ() * 0.5, 0.15);
-            }
-        }, 0L, 2L);
 
-        // After durationTicks: shrink X,Y to 0 (beam disappear animation)
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (particleRef[0] != null) particleRef[0].cancel();
-            if (!display.isValid()) return;
-            display.setInterpolationDuration(5);
-            display.setInterpolationDelay(0);
-            Transformation old = display.getTransformation();
-            display.setTransformation(new Transformation(
-                    old.getTranslation(), old.getLeftRotation(),
-                    new Vector3f(0f, 0f, old.getScale().z()),
-                    old.getRightRotation()
-            ));
-            Bukkit.getScheduler().runTaskLater(plugin, display::remove, 7L);
-        }, durationTicks);
+            pos[0] += dir.getX() * speed;
+            pos[1] += dir.getY() * speed;
+            pos[2] += dir.getZ() * speed;
+            distTravelled[0] += speed;
+
+            Location newLoc = new Location(p.getWorld(), pos[0], pos[1], pos[2]);
+            proj.teleport(newLoc);
+
+            // Max distance check
+            if (distTravelled[0] >= maxDist) {
+                proj.remove();
+                session.cleanup();
+                blastSessions.remove(uuid);
+                return;
+            }
+
+            // Solid block collision
+            if (newLoc.getBlock().getType().isSolid()) {
+                proj.remove();
+                session.cleanup();
+                blastSessions.remove(uuid);
+                return;
+            }
+
+            // Entity collision
+            for (Entity ent : newLoc.getWorld().getNearbyEntities(newLoc, 0.8, 0.8, 0.8)) {
+                if (!(ent instanceof LivingEntity le)) continue;
+                if (ent.getUniqueId().equals(uuid)) continue;
+                le.damage(damage, p);
+                spawnHitExplosion(p.getWorld(), newLoc);
+                proj.remove();
+                session.cleanup();
+                blastSessions.remove(uuid);
+                return;
+            }
+        }, 0L, 1L);
+
+        session.projectileTask = task;
+    }
+
+    // ── MEDIUM / HIGH — sustained beam ───────────────────────────────────────
+
+    private void fireBlastBeam(Player p, GraniteBlastSession session, BeamConfig cfg) {
+        UUID uuid = p.getUniqueId();
+        if (!plugin.ce().tryConsume(uuid, cfg.ceCost())) {
+            p.sendMessage(plugin.cfg().prefix() + "§cNot enough Cursed Energy.");
+            blastSessions.remove(uuid);
+            session.cleanup();
+            return;
+        }
+
+        long cooldown = cfg.durationTicks() <= 40 ? 30 : 60;
+        plugin.cooldowns().setCooldown(uuid, "ed.blast", cooldown);
+
+        // Spawn beam ItemDisplay
+        Location eyeLoc = p.getEyeLocation();
+        ItemDisplay beam = (ItemDisplay) p.getWorld().spawnEntity(eyeLoc, EntityType.ITEM_DISPLAY);
+        ItemStack beamItem = new ItemStack(Material.PAPER);
+        ItemMeta beamMeta = beamItem.getItemMeta();
+        if (beamMeta != null) {
+            beamMeta.setItemModel(new NamespacedKey("mybeam", "granite_blast2"));
+            beamItem.setItemMeta(beamMeta);
+        }
+        beam.setItemStack(beamItem);
+        beam.setBrightness(new Display.Brightness(15, 15));
+        beam.setTeleportDuration(1);
+        beam.setTransformation(new Transformation(
+                new Vector3f(0f, 0f, 0f),
+                new Quaternionf(),
+                new Vector3f(cfg.thickness(), cfg.thickness(), cfg.length()),
+                new Quaternionf()
+        ));
+        beam.setRotation(eyeLoc.getYaw(), eyeLoc.getPitch());
+        session.beamEntity = beam;
+
+        int[] tickCount = { 0 };
+        double halfWidth = cfg.thickness() / 2.0 + 0.5;
+        Set<UUID> hitThisTick = new HashSet<>();
+        double damagePerTick = cfg.damage() / 4.0;
+
+        // Beam task: follow player aim, hit detection
+        BukkitTask beamTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            tickCount[0]++;
+            if (!p.isOnline() || !beam.isValid() || tickCount[0] > cfg.durationTicks()) {
+                beam.remove();
+                session.cleanup();
+                blastSessions.remove(uuid);
+                p.sendActionBar("§b⚡ Granite Blast complete.");
+                return;
+            }
+
+            Location eye = p.getEyeLocation();
+            beam.teleport(eye);
+            beam.setRotation(eye.getYaw(), eye.getPitch());
+
+            Vector beamDir = eye.getDirection().normalize();
+            hitThisTick.clear();
+
+            // Raycast hit detection along beam length
+            for (double d = 0.5; d <= cfg.length(); d += 0.5) {
+                Location checkLoc = eye.clone().add(beamDir.clone().multiply(d));
+                if (checkLoc.getBlock().getType().isSolid()) break;
+                for (Entity ent : checkLoc.getWorld().getNearbyEntities(checkLoc, halfWidth, halfWidth, halfWidth)) {
+                    if (!(ent instanceof LivingEntity le)) continue;
+                    if (ent.getUniqueId().equals(uuid)) continue;
+                    if (hitThisTick.contains(ent.getUniqueId())) continue;
+                    hitThisTick.add(ent.getUniqueId());
+                    le.damage(damagePerTick, p);
+                }
+            }
+        }, 0L, 1L);
+        session.beamTask = beamTask;
+
+        // Spiral particle task around the beam
+        double[] spiralAngle = { 0.0 };
+        BukkitTask spiralTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!p.isOnline() || !beam.isValid()) return;
+
+            Location eye = p.getEyeLocation();
+            Vector beamDir = eye.getDirection().normalize();
+
+            // Compute two perpendicular axes for the spiral
+            Vector perp1 = beamDir.clone().crossProduct(new Vector(0, 1, 0)).normalize();
+            if (perp1.lengthSquared() < 0.01) {
+                perp1 = beamDir.clone().crossProduct(new Vector(1, 0, 0)).normalize();
+            }
+            Vector perp2 = beamDir.clone().crossProduct(perp1).normalize();
+
+            double radius = 0.6;
+            spiralAngle[0] += 0.5;
+
+            for (double d = 0.0; d <= cfg.length(); d += 2.0) {
+                double angle = spiralAngle[0] + d * 0.8;
+                double ox = Math.cos(angle) * radius;
+                double oy = Math.sin(angle) * radius;
+                Location spiralLoc = eye.clone()
+                        .add(beamDir.clone().multiply(d))
+                        .add(perp1.clone().multiply(ox))
+                        .add(perp2.clone().multiply(oy));
+                spiralLoc.getWorld().spawnParticle(Particle.DUST, spiralLoc, 1, 0, 0, 0, 0, GRANITE_SPIRAL);
+            }
+        }, 0L, 1L);
+        session.spiralTask = spiralTask;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -537,9 +597,15 @@ public final class EnergyDischargeManager {
         startTrackingCharge(p);
     }
 
-    /** Fires/charges the granite blast via /energydischarge blast */
+    /** Fires/charges the granite blast via /energydischarge blast (toggles start/release). */
     public void cmdBlast(Player p) {
-        startBlastCharge(p);
+        UUID uuid = p.getUniqueId();
+        GraniteBlastSession session = blastSessions.get(uuid);
+        if (session != null && session.isCharging()) {
+            releaseBlastCharge(p);
+        } else {
+            startBlastCharge(p);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -584,12 +650,18 @@ public final class EnergyDischargeManager {
         return bestLooking != null ? bestLooking : nearest;
     }
 
+    /** Returns the active blast session for a player, or null if none. */
+    public GraniteBlastSession getBlastSession(UUID uuid) {
+        return blastSessions.get(uuid);
+    }
+
     /** Cleans up any active tasks for a player (e.g. on logout). */
     public void cleanup(UUID uuid) {
         cancelTrackingCharge(uuid);
-        cancelBlastCharge(uuid);
-        BukkitTask t = activeBlastTasks.remove(uuid);
-        if (t != null) t.cancel();
-        lockedPlayers.remove(uuid);
+        GraniteBlastSession session = blastSessions.remove(uuid);
+        if (session != null) {
+            session.cancel();
+            session.cleanup();
+        }
     }
 }

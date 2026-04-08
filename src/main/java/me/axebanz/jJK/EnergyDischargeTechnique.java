@@ -23,7 +23,14 @@ public final class EnergyDischargeTechnique implements Technique {
         }
         switch (slot) {
             case ONE -> mgr.startTrackingCharge(player);
-            case TWO -> mgr.startBlastCharge(player);
+            case TWO -> {
+                GraniteBlastSession session = mgr.getBlastSession(player.getUniqueId());
+                if (session != null && session.isCharging()) {
+                    mgr.releaseBlastCharge(player);
+                } else {
+                    mgr.startBlastCharge(player);
+                }
+            }
         }
     }
 }
