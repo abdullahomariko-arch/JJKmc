@@ -264,7 +264,8 @@ public final class EnergyDischargeManager {
         UUID uuid = p.getUniqueId();
 
         // Already charging — ignore (release is triggered separately)
-        if (blastSessions.containsKey(uuid) && blastSessions.get(uuid).isCharging()) return;
+        GraniteBlastSession existing = blastSessions.get(uuid);
+        if (existing != null && existing.isCharging()) return;
 
         if (plugin.cooldowns().isOnCooldown(uuid, "ed.blast")) {
             long rem = plugin.cooldowns().remainingSeconds(uuid, "ed.blast");
@@ -565,9 +566,12 @@ public final class EnergyDischargeManager {
             Vector beamDir = eye.getDirection().normalize();
 
             // Compute two perpendicular axes for the spiral
-            Vector perp1 = beamDir.clone().crossProduct(new Vector(0, 1, 0)).normalize();
-            if (perp1.lengthSquared() < 0.01) {
+            Vector perp1;
+            Vector crossed = beamDir.clone().crossProduct(new Vector(0, 1, 0));
+            if (crossed.lengthSquared() < 0.01) {
                 perp1 = beamDir.clone().crossProduct(new Vector(1, 0, 0)).normalize();
+            } else {
+                perp1 = crossed.normalize();
             }
             Vector perp2 = beamDir.clone().crossProduct(perp1).normalize();
 

@@ -102,7 +102,7 @@ public final class KeybindListener implements Listener {
 
     /** Returns true if the ability string refers to Granite Blast. */
     private boolean isBlastAbility(String ability) {
-        String lower = ability.toLowerCase();
+        String lower = ability.toLowerCase(java.util.Locale.ROOT);
         return lower.equals("blast") || lower.equals("granite_blast");
     }
 
@@ -140,7 +140,7 @@ public final class KeybindListener implements Listener {
     private void executeAbility(Player p, String ability, boolean maxOutput) {
         LimitlessManager limitless = plugin.limitless();
 
-        switch (ability.toLowerCase()) {
+        switch (ability.toLowerCase(java.util.Locale.ROOT)) {
             case "infinity" -> {
                 if (limitless != null) limitless.toggleInfinity(p);
             }
