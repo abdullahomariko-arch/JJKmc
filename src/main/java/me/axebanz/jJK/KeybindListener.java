@@ -20,7 +20,7 @@ import org.bukkit.inventory.EquipmentSlot;
  * Key mappings:
  *   F           → PlayerSwapHandItemsEvent
  *   Q           → PlayerDropItemEvent
- *   SHIFT       → PlayerToggleSneakEvent (sneak start)
+ *   SHIFT       → PlayerToggleSneakEvent (sneak start / end)
  *   RIGHT_CLICK → PlayerInteractEvent (right-click, empty hand)
  *   LEFT_CLICK  → PlayerInteractEvent (left-click, empty hand)
  */
@@ -34,8 +34,6 @@ public final class KeybindListener implements Listener {
         this.keybindManager = keybindManager;
     }
 
-    // ───────────────────────── Join / Quit ─────────────────────────
-
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
         keybindManager.loadFromPdc(e.getPlayer());
@@ -47,47 +45,42 @@ public final class KeybindListener implements Listener {
         keybindManager.onQuit(e.getPlayer().getUniqueId());
     }
 
-    // ───────────────────────── F Key ─────────────────────────
-
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onSwapHand(PlayerSwapHandItemsEvent e) {
         Player p = e.getPlayer();
         String ability = keybindManager.onKeyPress(p, "F");
         if (ability == null) return;
+
         e.setCancelled(true);
+
         KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "F");
         if (result != null) executeAbility(p, result.ability, result.maxOutput);
     }
-
-    // ───────────────────────── Q Key ─────────────────────────
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDropItem(PlayerDropItemEvent e) {
         Player p = e.getPlayer();
         String ability = keybindManager.onKeyPress(p, "Q");
         if (ability == null) return;
+
         e.setCancelled(true);
+
         KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "Q");
         if (result != null) executeAbility(p, result.ability, result.maxOutput);
     }
 
-    // ───────────────────────── SHIFT Key ─────────────────────────
-    // SHIFT supports hold detection: sneak-start registers the press time,
-    // sneak-end fires the ability (with max-output if held 2+ seconds).
-
     @EventHandler(priority = EventPriority.HIGH)
     public void onSneak(PlayerToggleSneakEvent e) {
         Player p = e.getPlayer();
+
         if (e.isSneaking()) {
-            // Sneak START — register hold time
             String ability = keybindManager.onKeyPress(p, "SHIFT");
-            // If the bound ability is blast-related, start charging
+
             if (ability != null && isBlastAbility(ability)) {
                 EnergyDischargeManager ed = plugin.energyDischarge();
                 if (ed != null) ed.startBlastCharge(p);
             }
         } else {
-            // Sneak END — fire ability, max-output if held 2+ seconds
             KeybindManager.KeypressResult result = keybindManager.onKeyRelease(p, "SHIFT");
             if (result != null) {
                 if (isBlastAbility(result.ability)) {
@@ -100,23 +93,18 @@ public final class KeybindListener implements Listener {
         }
     }
 
-    /** Returns true if the ability string refers to Granite Blast. */
     private boolean isBlastAbility(String ability) {
         String lower = ability.toLowerCase(java.util.Locale.ROOT);
         return lower.equals("blast") || lower.equals("granite_blast");
     }
 
-    // ───────────────────────── Right / Left Click ─────────────────────────
-
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInteract(PlayerInteractEvent e) {
-        // Only main hand to avoid duplicate events
         if (e.getHand() != EquipmentSlot.HAND) return;
 
         Player p = e.getPlayer();
         Action action = e.getAction();
 
-        // Only fire when holding nothing (empty hand) or air
         Material inHand = p.getInventory().getItemInMainHand().getType();
         if (inHand != Material.AIR) return;
 
@@ -131,12 +119,6 @@ public final class KeybindListener implements Listener {
         }
     }
 
-    // ───────────────────────── Ability Dispatch ─────────────────────────
-
-    /**
-     * Dispatches the ability execution based on the bound ability string.
-     * Supports Limitless abilities and can be extended for other techniques.
-     */
     private void executeAbility(Player p, String ability, boolean maxOutput) {
         LimitlessManager limitless = plugin.limitless();
 
@@ -172,15 +154,8 @@ public final class KeybindListener implements Listener {
                 if (limitless != null) limitless.castInfiniteVoid(p);
             }
             case "blast", "granite_blast" -> {
-                EnergyDischargeManager ed = plugin.energyDischarge();
-                if (ed != null) {
-                    GraniteBlastSession session = ed.getBlastSession(p.getUniqueId());
-                    if (session != null && session.isCharging()) {
-                        ed.releaseBlastCharge(p);
-                    } else {
-                        ed.startBlastCharge(p);
-                    }
-                }
+                // Granite Blast is handled ONLY by SHIFT press/release lifecycle.
+                // Do not toggle here.
             }
             case "tracking", "tracking_beam" -> {
                 EnergyDischargeManager ed = plugin.energyDischarge();

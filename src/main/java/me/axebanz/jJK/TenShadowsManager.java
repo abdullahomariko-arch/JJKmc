@@ -462,7 +462,7 @@ public final class TenShadowsManager {
         whiteRabbit.setCustomNameVisible(true);
         whiteRabbit.setInvulnerable(false); // can be killed
         whiteRabbit.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 3, false, false, false));
-        whiteRabbit.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(10.0);
+        whiteRabbit.getAttribute(Attribute.MAX_HEALTH).setBaseValue(10.0);
         whiteRabbit.setHealth(10.0);
 
         whiteRabbit.getPersistentDataContainer().set(KEY_SHIKIGAMI, PersistentDataType.INTEGER, 1);
@@ -479,7 +479,7 @@ public final class TenShadowsManager {
         LivingEntity entity = (LivingEntity) loc.getWorld().spawnEntity(loc, entityType);
 
         if (type.maxHealth() > 0) {
-            entity.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(type.maxHealth());
+            entity.getAttribute(Attribute.MAX_HEALTH).setBaseValue(type.maxHealth());
             entity.setHealth(type.maxHealth());
         }
 
@@ -1117,7 +1117,7 @@ public final class TenShadowsManager {
                 if (entity instanceof LivingEntity le) {
                     BossBar bar = ritualBossBars.get(ownerUuid);
                     if (bar != null) {
-                        double pct = le.getHealth() / le.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+                        double pct = le.getHealth() / le.getAttribute(Attribute.MAX_HEALTH).getValue();
                         bar.setProgress(Math.max(0, Math.min(1, pct)));
                     }
 
@@ -1365,7 +1365,7 @@ public final class TenShadowsManager {
         dir.normalize();
         for (double d = 0; d <= length; d += 0.5) {
             Location point = from.clone().add(dir.clone().multiply(d));
-            w.spawnParticle(Particle.SLIME, point, 1, 0.1, 0.1, 0.1, 0);
+            w.spawnParticle(Particle.ITEM_SLIME, point, 1, 0.1, 0.1, 0.1, 0);
         }
     }
 
@@ -1584,9 +1584,9 @@ public final class TenShadowsManager {
 
     private void tickRitualRoundDeer(Player owner, LivingEntity deer) {
         // Ritual deer heals itself — making it a DPS check
-        if (deer.getHealth() < deer.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue() - 2) {
+        if (deer.getHealth() < deer.getAttribute(Attribute.MAX_HEALTH).getValue() - 2) {
             deer.setHealth(Math.min(deer.getHealth() + 1.5,
-                deer.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue()));
+                deer.getAttribute(Attribute.MAX_HEALTH).getValue()));
             deer.getWorld().spawnParticle(Particle.HAPPY_VILLAGER, deer.getLocation().add(0, 1.5, 0),
                 5, 0.3, 0.5, 0.3, 0);
         }
@@ -1781,7 +1781,7 @@ public final class TenShadowsManager {
 
                     // Regenerate ~12% of max HP on adaptation
                     try {
-                        double maxHp = mahoraga.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+                        double maxHp = mahoraga.getAttribute(Attribute.MAX_HEALTH).getValue();
                         double healAmount = maxHp * 0.12;
                         mahoraga.setHealth(Math.min(maxHp, mahoraga.getHealth() + healAmount));
                     } catch (Exception ignored) {}
@@ -1804,7 +1804,7 @@ public final class TenShadowsManager {
         Entity e = inst.entityUuid() != null ? Bukkit.getEntity(inst.entityUuid()) : null;
         if (!(e instanceof LivingEntity le)) return;
         try {
-            double pct = le.getHealth() / le.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+            double pct = le.getHealth() / le.getAttribute(Attribute.MAX_HEALTH).getValue();
             bar.setProgress(Math.max(0, Math.min(1, pct)));
             bar.setTitle("§5§lMahoraga §8| " + inst.currentTier().displayName());
         } catch (Exception ignored) {}

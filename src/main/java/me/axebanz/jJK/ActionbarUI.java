@@ -23,18 +23,29 @@ public final class ActionbarUI {
     }
 
     public void start() {
-        if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId);
+        if (taskId != -1) {
+            Bukkit.getScheduler().cancelTask(taskId);
+        }
 
         taskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
             if (!plugin.cfg().cooldownActionbarEnabled()) return;
 
             long now = System.currentTimeMillis();
-            for (Player p : Bukkit.getOnlinePlayers()) {
-                UUID u = p.getUniqueId();
-                Map<String, ActionbarTimer> map = timers.get(u);
 
-                // Build the technique icon prefix (MiniMessage format)
-                String iconPrefix = buildTechniqueIcon(u);
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                UUID uuid = p.getUniqueId();
+                Map<String, ActionbarTimer> map = timers.get(uuid);
+
+                String techId = plugin.techniqueManager().getAssignedId(uuid);
+
+                // Energy Discharge special HUD:
+                // [heat bar]     [charge bar]
+                if ("energy_discharge".equalsIgnoreCase(techId)) {
+                    sendEnergyDischargeHud(p);
+                    continue;
+                }
+
+                String iconPrefix = buildTechniqueIcon(uuid);
 
                 if (map == null || map.isEmpty()) {
                     sendMiniActionBar(p, iconPrefix);
@@ -47,43 +58,36 @@ public final class ActionbarUI {
                     continue;
                 }
 
-                // If cursed speech timers exist, render 3 cooldowns at once
+                // Cursed Speech special multi-part display
                 if (map.containsKey("cursed_speech.plummet")
                         || map.containsKey("cursed_speech.nomove")
                         || map.containsKey("cursed_speech.explode")) {
 
-                    String msg = renderCursedSpeechBar(map, now);
+                    String msg = renderCursedSpeechBar(map);
                     if (msg != null && !msg.isBlank()) {
-                        sendMiniActionBar(p, iconPrefix + "  <gray>|</gray>  " + msg);
+                        sendMiniActionBar(p, iconPrefix + "  <dark_gray>|</dark_gray>  " + msg);
                         continue;
                     }
                 }
 
-                // Default: show chosen timer with icon prefix
+                // Default single timer display
                 ActionbarTimer chosen = choose(map.values(), plugin.cfg().cooldownPreferShortest(), now);
                 long remSec = Math.max(0, (chosen.endsAtMs - now) / 1000L);
                 String msg = chosen.color + chosen.icon + " <white>" + TimeFmt.mmss(remSec) + "</white>";
                 sendMiniActionBar(p, iconPrefix + "  <dark_gray>|</dark_gray>  " + msg);
             }
-        }, 20L, 20L);
+        }, 20L, 2L);
     }
 
-    /**
-     * Send an actionbar using MiniMessage so glyph tags render properly.
-     */
     private void sendMiniActionBar(Player p, String miniMessageString) {
         try {
             Component component = MINI.deserialize(miniMessageString);
             p.sendActionBar(component);
         } catch (Exception e) {
-            // Fallback to plain text if MiniMessage fails
-            p.sendActionBar(miniMessageString);
+            p.sendActionBar(Component.text(miniMessageString));
         }
     }
 
-    /**
-     * Builds the technique icon string using Nexo glyph tags.
-     */
     private String buildTechniqueIcon(UUID uuid) {
         Technique tech = plugin.techniqueManager().getAssigned(uuid);
 
@@ -93,30 +97,24 @@ public final class ActionbarUI {
 
         String glyph = tech.glyphTag();
         String name = tech.displayName();
-
-        // Strip legacy color codes from name for MiniMessage
         String cleanName = stripLegacyColors(name);
 
-        // Check if nullified
         if (plugin.nullify().isNullified(uuid)) {
             long rem = plugin.nullify().remainingSeconds(uuid);
-            return "<red>✖ <strikethrough>NULLIFIED</strikethrough></red> <dark_gray>(<white>" + TimeFmt.mmss(rem) + "</white>)</dark_gray>";
+            return "<red>✖ <strikethrough>NULLIFIED</strikethrough></red> <dark_gray>(<white>"
+                    + TimeFmt.mmss(rem) + "</white>)</dark_gray>";
         }
 
         String hexColor = tech.hexColor();
-        // Glyph uses original PNG colors, only the text gets colored
         return glyph + "<shift:4><" + hexColor + ">" + cleanName + "</" + hexColor + ">";
     }
 
-    /**
-     * Strip legacy § color codes so MiniMessage doesn't break.
-     */
     private String stripLegacyColors(String input) {
         if (input == null) return "";
         return input.replaceAll("§[0-9a-fk-or]", "");
     }
 
-    private String renderCursedSpeechBar(Map<String, ActionbarTimer> map, long now) {
+    private String renderCursedSpeechBar(Map<String, ActionbarTimer> map) {
         String a = one(map, "cursed_speech.plummet", "<red>Plummet</red>");
         String b = one(map, "cursed_speech.nomove", "<yellow>Don't Move</yellow>");
         String c = one(map, "cursed_speech.explode", "<gold>Explode</gold>");
@@ -127,13 +125,14 @@ public final class ActionbarUI {
         if (c != null) parts.add(c);
 
         if (parts.isEmpty()) return null;
-
         return String.join("   <dark_gray>|</dark_gray>   ", parts);
     }
 
     private String one(Map<String, ActionbarTimer> map, String key, String label) {
         ActionbarTimer t = map.get(key);
-        if (t == null) return "<gray>{" + label + "<gray>: </gray><green>Ready</green><gray>}</gray>";
+        if (t == null) {
+            return "<gray>{" + label + "<gray>: </gray><green>Ready</green><gray>}</gray>";
+        }
 
         long remSec = Math.max(0, (t.endsAtMs - System.currentTimeMillis()) / 1000L);
         return "<gray>{" + label + "<gray>: </gray><white>" + TimeFmt.mmss(remSec) + "</white><gray>}</gray>";
@@ -141,8 +140,13 @@ public final class ActionbarUI {
 
     private ActionbarTimer choose(Collection<ActionbarTimer> values, boolean preferShortest, long now) {
         ActionbarTimer best = null;
+
         for (ActionbarTimer t : values) {
-            if (best == null) { best = t; continue; }
+            if (best == null) {
+                best = t;
+                continue;
+            }
+
             long remT = t.endsAtMs - now;
             long remB = best.endsAtMs - now;
 
@@ -152,7 +156,36 @@ public final class ActionbarUI {
                 if (t.createdAtMs > best.createdAtMs) best = t;
             }
         }
+
         return best;
+    }
+
+    /**
+     * Energy Discharge HUD only:
+     * [heat bar]     [charge bar]
+     *
+     * No technique name, no black separator text, no merged font key.
+     */
+    private void sendEnergyDischargeHud(Player p) {
+        EnergyDischargeManager ed = plugin.energyDischarge();
+
+        int chargePercent = 0;
+        int heatPercent = 0;
+
+        if (ed != null) {
+            GraniteBlastSession session = ed.getBlastSession(p.getUniqueId());
+            if (session != null && session.isCharging()) {
+                chargePercent = session.getChargePercent();
+            }
+
+            heatPercent = ed.getHeatPercent(p.getUniqueId());
+        }
+
+        Component heatBar = HeatBar.getBarComponent(heatPercent);
+        Component spacer = Component.text("     ");
+        Component chargeBar = GraniteChargeBar.getBarComponent(chargePercent);
+
+        p.sendActionBar(heatBar.append(spacer).append(chargeBar));
     }
 
     public void setTimer(UUID uuid, String key, String icon, String color, long seconds) {

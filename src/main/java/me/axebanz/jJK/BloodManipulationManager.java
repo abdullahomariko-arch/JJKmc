@@ -260,7 +260,7 @@ public final class BloodManipulationManager {
         if (!hasTechnique(p)) return;
         if (!isAbilityUnlocked(p, 3)) return;
 
-        double maxHp = p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue();
+        double maxHp = p.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getValue();
         if (p.getHealth() > maxHp * 0.5) return;
 
         UUID uuid = p.getUniqueId();
