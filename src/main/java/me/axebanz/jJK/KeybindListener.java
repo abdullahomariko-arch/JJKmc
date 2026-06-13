@@ -138,17 +138,8 @@ public final class KeybindListener implements Listener {
                     else limitless.castRed(p);
                 }
             }
-            case "bluemax", "blue_max" -> {
-                if (limitless != null) limitless.castBlueMax(p);
-            }
-            case "redmax", "red_max" -> {
-                if (limitless != null) limitless.castRedMax(p);
-            }
             case "purple" -> {
                 if (limitless != null) limitless.castHollowPurple(p);
-            }
-            case "nuke" -> {
-                if (limitless != null) limitless.castNuke(p);
             }
             case "void", "infinitevoid" -> {
                 if (limitless != null) limitless.castInfiniteVoid(p);

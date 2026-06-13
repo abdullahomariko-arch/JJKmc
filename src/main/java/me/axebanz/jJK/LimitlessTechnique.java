@@ -4,8 +4,8 @@ import org.bukkit.entity.Player;
 
 /**
  * Limitless Technique — requires Six Eyes trait for full power.
- * Abilities: Infinity, Blue, Blue Max, Red, Red Max, Hollow Purple, Hollow Purple Nuke,
- * Domain Expansion: Infinite Void.
+ * Five selectable abilities: Infinity, Blue, Red, Hollow Purple, Infinite Void.
+ * Maximum Output (Blue Max / Red Max) and Purple Nuke are internal mechanics only.
  */
 public final class LimitlessTechnique implements Technique {
 
@@ -28,12 +28,15 @@ public final class LimitlessTechnique implements Technique {
     public void castAbility(Player player, AbilitySlot slot) {
         LimitlessManager mgr = plugin.limitless();
         if (mgr == null) {
-            player.sendMessage(plugin.cfg().prefix() + "§bLimitless §7— coming soon.");
+            player.sendMessage(plugin.cfg().prefix() + "§bLimitless §7is not ready.");
             return;
         }
         switch (slot) {
-            case ONE -> mgr.toggleInfinity(player);
-            case TWO -> mgr.castBlue(player);
+            case ONE   -> mgr.toggleInfinity(player);
+            case TWO   -> mgr.castBlue(player);
+            case THREE -> mgr.castRed(player);
+            case FOUR  -> mgr.castHollowPurple(player);
+            case FIVE  -> mgr.castInfiniteVoid(player);
             default -> { }
         }
     }

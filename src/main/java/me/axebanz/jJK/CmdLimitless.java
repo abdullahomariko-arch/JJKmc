@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * /limitless <infinity|blue|bluemax|red|redmax|purple|nuke|void|status>
+ * /limitless <infinity|blue|red|purple|void|status>
  */
 public final class CmdLimitless implements CommandExecutor, TabCompleter {
 
@@ -43,20 +43,11 @@ public final class CmdLimitless implements CommandExecutor, TabCompleter {
 
         String sub = args[0].toLowerCase(Locale.ROOT);
 
-        // Support two-word forms: "blue max", "red max"
-        if (args.length >= 2 && "max".equalsIgnoreCase(args[1])) {
-            if ("blue".equals(sub)) { mgr.castBlueMax(p); return true; }
-            if ("red".equals(sub)) { mgr.castRedMax(p); return true; }
-        }
-
         switch (sub) {
             case "infinity" -> mgr.toggleInfinity(p);
             case "blue" -> mgr.castBlue(p);
-            case "bluemax", "blue_max" -> mgr.castBlueMax(p);
             case "red" -> mgr.castRed(p);
-            case "redmax", "red_max" -> mgr.castRedMax(p);
             case "purple" -> mgr.castHollowPurple(p);
-            case "nuke" -> mgr.castNuke(p);
             case "void", "domain", "infinitevoid" -> mgr.castInfiniteVoid(p);
             case "status" -> {
                 boolean infinity = mgr.isInfinityActive(p);
@@ -87,12 +78,9 @@ public final class CmdLimitless implements CommandExecutor, TabCompleter {
     private void sendHelp(Player p, String label) {
         p.sendMessage(plugin.cfg().prefix() + "§bLimitless Technique:");
         p.sendMessage("  §f/" + label + " infinity §7— Toggle Infinity (blocks all attacks)");
-        p.sendMessage("  §f/" + label + " blue §7— Pull entities (5-block radius)");
-        p.sendMessage("  §f/" + label + " bluemax §7— Max Blue (follows cursor, Shift to anchor)");
-        p.sendMessage("  §f/" + label + " red §7— Repel entities [RCT required]");
-        p.sendMessage("  §f/" + label + " redmax §7— Max Red (Shift to launch) [RCT required]");
+        p.sendMessage("  §f/" + label + " blue §7— Pull entities (hold key for Maximum Output)");
+        p.sendMessage("  §f/" + label + " red §7— Repel entities [RCT required] (hold key for Maximum Output)");
         p.sendMessage("  §f/" + label + " purple §7— Hollow Purple beam [RCT required]");
-        p.sendMessage("  §f/" + label + " nuke §7— Hollow Purple Nuke [kill with Max Blue first]");
         p.sendMessage("  §f/" + label + " void §7— Domain Expansion: Infinite Void");
         p.sendMessage("  §f/" + label + " status §7— Show current status");
     }
@@ -103,13 +91,7 @@ public final class CmdLimitless implements CommandExecutor, TabCompleter {
         String assignedId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
         if (!"limitless".equalsIgnoreCase(assignedId)) return List.of();
         if (args.length == 1) {
-            return List.of("infinity", "blue", "bluemax", "red", "redmax", "purple", "nuke", "void", "status");
-        }
-        if (args.length == 2) {
-            String first = args[0].toLowerCase(Locale.ROOT);
-            if ("blue".equals(first) || "red".equals(first)) {
-                return List.of("max");
-            }
+            return List.of("infinity", "blue", "red", "purple", "void", "status");
         }
         return List.of();
     }
