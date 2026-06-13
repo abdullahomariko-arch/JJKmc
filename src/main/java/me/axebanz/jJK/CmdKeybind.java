@@ -104,7 +104,7 @@ public final class CmdKeybind implements SubCommand {
         // args here are shifted (jjk keybind ...) so args[0] = sub-action
         if (args.length == 1) {
             List<String> options = new ArrayList<>(List.of("list", "clear",
-                    "infinity", "blue", "bluemax", "red", "redmax", "purple", "nuke", "void"));
+                    "infinity", "blue", "red", "purple", "void"));
             return prefixFilter(options, args[0]);
         }
         if (args.length == 2) {

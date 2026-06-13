@@ -10,6 +10,7 @@ import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.Vector;
 
 import java.util.*;
@@ -43,6 +44,9 @@ public final class LimitlessListener implements Listener {
         String assignedId = plugin.techniqueManager().getAssignedId(victim.getUniqueId());
         if (!"limitless".equalsIgnoreCase(assignedId)) return;
 
+        // Inverted Spear of Heaven bypasses Infinity — do NOT cancel the damage
+        if (isInvertedSpearHit(e)) return;
+
         // Block all physical damage while Infinity is active
         e.setCancelled(true);
         victim.getWorld().spawnParticle(
@@ -50,6 +54,13 @@ public final class LimitlessListener implements Listener {
                 victim.getLocation().add(0, 1.0, 0),
                 20, 0.4, 0.6, 0.4, 0.05
         );
+    }
+
+    /** Returns true if the attacker is wielding the Inverted Spear of Heaven. */
+    private boolean isInvertedSpearHit(EntityDamageByEntityEvent e) {
+        if (!(e.getDamager() instanceof Player attacker)) return false;
+        ItemStack item = attacker.getInventory().getItemInMainHand();
+        return plugin.tools().identify(item) == ToolId.INVERTED_SPEAR;
     }
 
     /** Intercept projectiles heading toward an Infinity player */
