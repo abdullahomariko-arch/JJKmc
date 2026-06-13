@@ -128,14 +128,26 @@ public final class KeybindListener implements Listener {
             }
             case "blue" -> {
                 if (limitless != null) {
-                    if (maxOutput) limitless.castBlueMax(p);
-                    else limitless.castBlue(p);
+                    if (maxOutput) {
+                        p.sendMessage(plugin.cfg().prefix() + "§bMaximum Output: Blue reached");
+                        p.playSound(p.getLocation(), org.bukkit.Sound.BLOCK_BEACON_ACTIVATE, 0.7f, 1.8f);
+                        p.sendActionBar(net.kyori.adventure.text.Component.text("Maximum Output: Blue reached"));
+                        limitless.castBlueMax(p);
+                    } else {
+                        limitless.castBlue(p);
+                    }
                 }
             }
             case "red" -> {
                 if (limitless != null) {
-                    if (maxOutput) limitless.castRedMax(p);
-                    else limitless.castRed(p);
+                    if (maxOutput) {
+                        p.sendMessage(plugin.cfg().prefix() + "§cMaximum Output: Red reached");
+                        p.playSound(p.getLocation(), org.bukkit.Sound.BLOCK_BEACON_ACTIVATE, 0.7f, 1.2f);
+                        p.sendActionBar(net.kyori.adventure.text.Component.text("Maximum Output: Red reached"));
+                        limitless.castRedMax(p);
+                    } else {
+                        limitless.castRed(p);
+                    }
                 }
             }
             case "purple" -> {

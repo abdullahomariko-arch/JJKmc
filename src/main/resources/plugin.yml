@@ -4,7 +4,7 @@
   version: 1.0
   api-version: "1.21"
   depend: [ModelEngine]
-  softdepend: [Skript, SkBee]
+  softdepend: [Skript, SkBee, Nexo]
 
   commands:
     jjk:
@@ -63,7 +63,7 @@
     limitless:
       description: "Limitless Technique commands"
       aliases: [ll]
-      usage: "/limitless <infinity|blue|bluemax|red|redmax|purple|nuke|void|status>"
+      usage: "/limitless <infinity|blue|red|purple|void|status>"
 
     deadlysentencing:
       description: "Deadly Sentencing Technique commands"

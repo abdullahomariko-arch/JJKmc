@@ -37,8 +37,14 @@ public final class LimitlessManager {
     private final Map<UUID, BukkitTask> blueMaxActiveTasks = new ConcurrentHashMap<>();
     // Players who killed something during Blue Max orb — can now lock the orb
     private final Set<UUID> canLockBlue = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    // Locked Blue orbs — uuid -> locked ItemDisplay entity (for Nuke detection)
-    private final Map<UUID, ItemDisplay> lockedBlueOrbs = new ConcurrentHashMap<>();
+    // Locked Blue state — uuid -> locked orb state (for Red Max collision / nuke trigger)
+    private final Map<UUID, LockedBlue> lockedBlues = new ConcurrentHashMap<>();
+    // Recent Blue Max damage tracking for robust kill attribution
+    private final Map<UUID, UUID> recentBlueMaxDamageOwner = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> recentBlueMaxDamageTime = new ConcurrentHashMap<>();
+    // Consumed locked-blue markers used by internal Purple Nuke validation
+    private final Map<UUID, Location> consumedLockedBlueCenters = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> consumedLockedBlueAtMs = new ConcurrentHashMap<>();
 
     // Locked Blue hitbox radius (invisible sphere around the locked-Blue location).
     // 2.5 blocks gives a generous but not overpowered collision area — large enough
@@ -49,6 +55,24 @@ public final class LimitlessManager {
     // Delay in ticks between the Red Max beam hitting the locked Blue and the nuke detonating.
     // 15 ticks (~0.75 s) provides a brief dramatic buildup without feeling laggy.
     private static final long PURPLE_NUKE_TRIGGER_DELAY_TICKS = 15L;
+    private static final long LOCKED_BLUE_LIFETIME_MS = 10_000L;
+    private static final long BLUE_MAX_KILL_WINDOW_MS = 5_000L;
+    private static final int PURPLE_NUKE_COOLDOWN_SECONDS = 90;
+
+    private static final class LockedBlue {
+        final UUID owner;
+        final Location location;
+        final ItemDisplay visual;
+        final long expiresAtMs;
+        BukkitTask timeoutTask;
+
+        LockedBlue(UUID owner, Location location, ItemDisplay visual, long expiresAtMs) {
+            this.owner = owner;
+            this.location = location;
+            this.visual = visual;
+            this.expiresAtMs = expiresAtMs;
+        }
+    }
 
     public LimitlessManager(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
@@ -192,15 +216,12 @@ public final class LimitlessManager {
         // Spawn ItemDisplay orb at eye location
         final int finalSteps = totalSteps;
         World world = p.getWorld();
-        ItemDisplay orb = world.spawn(eye.clone(), ItemDisplay.class, e -> {
-            e.setItemStack(new ItemStack(Material.BLUE_ICE));
-            e.setTransformation(new Transformation(
-                    new Vector3f(0f, 0f, 0f),
-                    new Quaternionf(),
-                    new Vector3f(0.5f, 0.5f, 0.5f),
-                    new Quaternionf()));
-            e.setBrightness(new Display.Brightness(15, 15));
-        });
+        ItemDisplay orb = spawnBillboardVisual(
+                eye.clone(),
+                getLimitlessVisualItem("limitless_blue", Material.BLUE_ICE),
+                0.5f
+        );
+        if (orb == null) return;
         activeBlueOrbs.put(p.getUniqueId(), orb);
 
         // Travel along raycast path (1 tick per step)
@@ -250,13 +271,17 @@ public final class LimitlessManager {
                     le.setVelocity(le.getVelocity().add(pull));
                 }
                 if (dist <= 1.0) {
+                    if (isMax) recordBlueMaxDamage(caster, le);
                     le.damage(damagePerTick, caster);
+                    if (isMax && (le.isDead() || le.getHealth() <= 0.0)) {
+                        canLockBlue.add(caster.getUniqueId());
+                    }
                 }
             }
 
             if (isMax) {
                 // Safety: if orb was locked externally, cancel this task
-                if (lockedBlueOrbs.containsKey(uuid)) {
+                if (lockedBlues.containsKey(uuid)) {
                     activeRef[0].cancel();
                     return;
                 }
@@ -312,15 +337,12 @@ public final class LimitlessManager {
         World world = p.getWorld();
 
         // Spawn larger ItemDisplay orb (2.5x normal scale)
-        ItemDisplay orb = world.spawn(eye.clone(), ItemDisplay.class, e -> {
-            e.setItemStack(new ItemStack(Material.BLUE_ICE));
-            e.setTransformation(new Transformation(
-                    new Vector3f(0f, 0f, 0f),
-                    new Quaternionf(),
-                    new Vector3f(1.25f, 1.25f, 1.25f), // 2.5x larger than normal Blue (0.5 base → 1.25 = 2.5× multiplier)
-                    new Quaternionf()));
-            e.setBrightness(new Display.Brightness(15, 15));
-        });
+        ItemDisplay orb = spawnBillboardVisual(
+                eye.clone(),
+                getLimitlessVisualItem("limitless_blue_max", Material.BLUE_ICE),
+                1.25f
+        );
+        if (orb == null) return;
         activeBlueMaxOrbs.put(p.getUniqueId(), orb);
 
         // Travel along raycast path, destroying blocks in 2-block radius
@@ -354,38 +376,68 @@ public final class LimitlessManager {
         return activeBlueMaxOrbs.containsKey(p.getUniqueId());
     }
 
-    /** Marks the player's Blue Max orb as lockable (called when they kill something). */
-    public void markCanLockBlue(Player p) {
-        canLockBlue.add(p.getUniqueId());
-    }
-
     /** Returns true if the player can lock their Blue Max orb. */
     public boolean canLockBlue(Player p) {
         return canLockBlue.contains(p.getUniqueId());
     }
 
-    /**
-     * Locks the Blue Max orb in place — cancels the active pull task and stores
-     * the orb reference for Nuke detection.
-     */
-    public void lockBlueOrb(Player p) {
+    public void tryLockBlue(Player p) {
+        if (!checkTechnique(p)) return;
         UUID uuid = p.getUniqueId();
-        ItemDisplay orb = activeBlueMaxOrbs.get(uuid);
-        if (orb == null || !orb.isValid()) return;
-        lockedBlueOrbs.put(uuid, orb);
-        canLockBlue.remove(uuid);
-        // Cancel the active phase task — the orb now persists until released
+        if (!canLockBlue.remove(uuid)) {
+            p.sendMessage(plugin.cfg().prefix() + "§7You need a Blue Max kill before locking Blue.");
+            return;
+        }
+
+        Location lockLocation = getBlueLockLocation(p);
+        if (lockLocation == null || lockLocation.getWorld() == null) {
+            p.sendMessage(plugin.cfg().prefix() + "§cCould not lock Blue here.");
+            return;
+        }
+
+        removeLockedBlue(uuid, true);
+        ItemDisplay visual = spawnBillboardVisual(
+                lockLocation.clone(),
+                getLimitlessVisualItem("limitless_locked_blue", Material.BLUE_ICE),
+                2.5f
+        );
+        if (visual == null) {
+            p.sendMessage(plugin.cfg().prefix() + "§cCould not create locked Blue visual.");
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        LockedBlue locked = new LockedBlue(uuid, lockLocation.clone(), visual, now + LOCKED_BLUE_LIFETIME_MS);
+        lockedBlues.put(uuid, locked);
+
         BukkitTask task = blueMaxActiveTasks.remove(uuid);
         if (task != null) task.cancel();
-        p.sendMessage(plugin.cfg().prefix() + "§b§lBlue orb LOCKED §7— stop sneaking to release.");
+        activeBlueMaxOrbs.remove(uuid);
+
+        locked.timeoutTask = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            LockedBlue current = lockedBlues.get(uuid);
+            if (current != locked) return;
+            removeLockedBlue(uuid, true);
+            Player owner = Bukkit.getPlayer(uuid);
+            if (owner != null && owner.isOnline()) {
+                owner.sendMessage(plugin.cfg().prefix() + "§7Locked Blue faded.");
+            }
+        }, 200L);
+
+        p.sendMessage(plugin.cfg().prefix() + "§bBlue locked. §7Fire §cMaximum Output: Red §7into it within §f10s§7.");
     }
 
     /** Returns true if the player has a locked Blue Max orb. */
     public boolean hasLockedBlueOrb(Player p) {
         UUID uuid = p.getUniqueId();
-        ItemDisplay orb = lockedBlueOrbs.get(uuid);
-        if (orb == null || !orb.isValid()) {
-            lockedBlueOrbs.remove(uuid);
+        LockedBlue locked = lockedBlues.get(uuid);
+        if (locked == null) return false;
+        if (System.currentTimeMillis() > locked.expiresAtMs) {
+            removeLockedBlue(uuid, true);
+            return false;
+        }
+        if (locked.visual != null && !locked.visual.isValid()) {
+            removeLockedBlue(uuid, false);
             return false;
         }
         return true;
@@ -393,13 +445,35 @@ public final class LimitlessManager {
 
     /** Removes the locked Blue orb. */
     public void removeLockedBlueOrb(Player p) {
-        UUID uuid = p.getUniqueId();
-        ItemDisplay orb = lockedBlueOrbs.remove(uuid);
-        if (orb != null && orb.isValid()) orb.remove();
-        activeBlueMaxOrbs.remove(uuid);
-        BukkitTask task = blueMaxActiveTasks.remove(uuid);
-        if (task != null) task.cancel();
+        removeLockedBlue(p.getUniqueId(), true);
         p.sendMessage(plugin.cfg().prefix() + "§7Blue orb released.");
+    }
+
+    public void removeLockedBlue(UUID uuid, boolean removeVisual) {
+        LockedBlue locked = lockedBlues.remove(uuid);
+        if (locked == null) return;
+        if (locked.timeoutTask != null) locked.timeoutTask.cancel();
+        if (removeVisual && locked.visual != null && locked.visual.isValid()) {
+            locked.visual.remove();
+        }
+    }
+
+    private Location getBlueLockLocation(Player p) {
+        UUID uuid = p.getUniqueId();
+        ItemDisplay active = activeBlueMaxOrbs.get(uuid);
+        if (active != null && active.isValid()) {
+            return active.getLocation().clone();
+        }
+
+        Location eye = p.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        Location lastAir = eye.clone().add(dir.clone().multiply(2.0));
+        for (double d = 2.0; d <= 12.0; d += 0.5) {
+            Location step = eye.clone().add(dir.clone().multiply(d));
+            if (step.getBlock().getType().isSolid()) break;
+            lastAir = step;
+        }
+        return lastAir;
     }
 
     // ===== RED (Repulsion Orb — requires RCT) =====
@@ -440,15 +514,12 @@ public final class LimitlessManager {
         World world = p.getWorld();
 
         // Spawn red ItemDisplay orb
-        ItemDisplay orb = world.spawn(eye.clone(), ItemDisplay.class, e -> {
-            e.setItemStack(new ItemStack(Material.NETHER_BRICK));
-            e.setTransformation(new Transformation(
-                    new Vector3f(0f, 0f, 0f),
-                    new Quaternionf(),
-                    new Vector3f(0.5f, 0.5f, 0.5f),
-                    new Quaternionf()));
-            e.setBrightness(new Display.Brightness(15, 15));
-        });
+        ItemDisplay orb = spawnBillboardVisual(
+                eye.clone(),
+                getLimitlessVisualItem("limitless_red", Material.REDSTONE_BLOCK),
+                0.5f
+        );
+        if (orb == null) return;
 
         final Location fixedEye = eye.clone();
         final int[] step = {0};
@@ -515,12 +586,10 @@ public final class LimitlessManager {
         Vector dir = eyeLoc.getDirection().normalize();
         World world = p.getWorld();
 
-        // Check if a locked Blue orb exists — if the beam hits it, trigger Purple Nuke
-        Location lockedBlueLoc = getStationaryBlueLocation(p.getUniqueId());
-
         // Raycast: find beam length (max 60 blocks), destroy 1-block radius along beam
         double beamLength = 60.0;
         boolean nukeTriggered = false;
+        Location nukeCenter = null;
         for (double d = 0.5; d <= 60.0; d += 0.5) {
             Location step = eyeLoc.clone().add(dir.clone().multiply(d));
             if (step.getBlock().getType().isSolid()) {
@@ -531,8 +600,9 @@ public final class LimitlessManager {
             destroyBlocksInRadius(step, 1, p);
 
             // Check if beam passes through the locked Blue hitbox
-            if (!nukeTriggered && beamIntersectsLockedBlue(step, lockedBlueLoc)) {
+            if (!nukeTriggered && redMaxHitsLockedBlue(p, step)) {
                 nukeTriggered = true;
+                nukeCenter = consumeLockedBlueForNuke(p.getUniqueId());
                 beamLength = d;
                 break;
             }
@@ -550,7 +620,7 @@ public final class LimitlessManager {
         // Spawn ItemDisplay beam at midpoint, Z scale = beam length
         Location midLoc = eyeLoc.clone().add(dir.clone().multiply(finalBeamLength / 2.0));
         ItemDisplay display = world.spawn(midLoc, ItemDisplay.class, e -> {
-            e.setItemStack(new ItemStack(Material.NETHER_BRICK));
+            e.setItemStack(getLimitlessVisualItem("limitless_red_max", Material.REDSTONE_BLOCK));
             e.setTransformation(new Transformation(
                     new Vector3f(0f, 0f, 0f),
                     new Quaternionf(),
@@ -573,25 +643,32 @@ public final class LimitlessManager {
             }
         }, 0L, 2L);
 
-        // After 1 second (20 ticks): disappear animation (X, Y → 0 over 5 ticks)
-        final Location finalLockedBlueLoc = lockedBlueLoc;
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (particleRef[0] != null) particleRef[0].cancel();
-            if (!display.isValid()) return;
-            display.setInterpolationDuration(5);
-            display.setInterpolationDelay(0);
-            Transformation old = display.getTransformation();
-            display.setTransformation(new Transformation(
-                    old.getTranslation(), old.getLeftRotation(),
-                    new Vector3f(0f, 0f, old.getScale().z()),
-                    old.getRightRotation()));
-            Bukkit.getScheduler().runTaskLater(plugin, display::remove, 7L);
-        }, 20L);
+        if (nukeTriggered) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (particleRef[0] != null) particleRef[0].cancel();
+                if (display.isValid()) display.remove();
+            }, 2L);
+        } else {
+            // After 1 second (20 ticks): disappear animation (X, Y → 0 over 5 ticks)
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (particleRef[0] != null) particleRef[0].cancel();
+                if (!display.isValid()) return;
+                display.setInterpolationDuration(5);
+                display.setInterpolationDelay(0);
+                Transformation old = display.getTransformation();
+                display.setTransformation(new Transformation(
+                        old.getTranslation(), old.getLeftRotation(),
+                        new Vector3f(0f, 0f, old.getScale().z()),
+                        old.getRightRotation()));
+                Bukkit.getScheduler().runTaskLater(plugin, display::remove, 7L);
+            }, 20L);
+        }
 
         // If the beam hit the locked Blue orb, trigger Purple Nuke after a short delay
-        if (nukeTriggered && finalLockedBlueLoc != null) {
+        if (nukeTriggered && nukeCenter != null) {
+            final Location finalNukeCenter = nukeCenter.clone();
             Bukkit.getScheduler().runTaskLater(plugin, () ->
-                    triggerPurpleNuke(p, finalLockedBlueLoc.clone()), PURPLE_NUKE_TRIGGER_DELAY_TICKS);
+                    triggerPurpleNuke(p, finalNukeCenter), PURPLE_NUKE_TRIGGER_DELAY_TICKS);
         }
     }
 
@@ -649,7 +726,7 @@ public final class LimitlessManager {
         // Spawn ItemDisplay beam, Z scale = beam length
         Location midLoc = eye.clone().add(dir.clone().multiply(finalBeamLength / 2.0));
         ItemDisplay display = world.spawn(midLoc, ItemDisplay.class, e -> {
-            e.setItemStack(new ItemStack(Material.CRYING_OBSIDIAN));
+            e.setItemStack(getLimitlessVisualItem("limitless_purple", Material.PURPLE_CONCRETE));
             e.setTransformation(new Transformation(
                     new Vector3f(0f, 0f, 0f),
                     new Quaternionf(),
@@ -683,11 +760,26 @@ public final class LimitlessManager {
     // ===== HOLLOW PURPLE NUKE (internal — triggered by Red Max hitting Locked Blue) =====
 
     private void triggerPurpleNuke(Player caster, Location center) {
+        if (!checkTechnique(caster)) return;
         UUID uuid = caster.getUniqueId();
+        if (!plugin.ce().hasRct(uuid)) {
+            caster.sendMessage(plugin.cfg().prefix() + "§cPurple Nuke requires §aReverse Cursed Technique§c!");
+            return;
+        }
+        if (plugin.cooldowns().isOnCooldown(uuid, "limitless_purple_nuke")) {
+            long rem = plugin.cooldowns().remainingSeconds(uuid, "limitless_purple_nuke");
+            caster.sendMessage(plugin.cfg().prefix() + "§cOn cooldown: §f" + rem + "s");
+            return;
+        }
 
-        // Remove locked Blue orb
-        ItemDisplay blueOrb = lockedBlueOrbs.remove(uuid);
-        if (blueOrb != null && blueOrb.isValid()) blueOrb.remove();
+        Location consumedCenter = consumedLockedBlueCenters.remove(uuid);
+        Long consumedAt = consumedLockedBlueAtMs.remove(uuid);
+        long now = System.currentTimeMillis();
+        if (consumedCenter == null || consumedAt == null || now - consumedAt > BLUE_MAX_KILL_WINDOW_MS) {
+            return;
+        }
+        center = consumedCenter;
+
         activeBlueMaxOrbs.remove(uuid);
         BukkitTask task = blueMaxActiveTasks.remove(uuid);
         if (task != null) task.cancel();
@@ -695,6 +787,18 @@ public final class LimitlessManager {
 
         World w = center.getWorld();
         if (w == null) return;
+        plugin.cooldowns().setCooldown(uuid, "limitless_purple_nuke", PURPLE_NUKE_COOLDOWN_SECONDS);
+
+        ItemDisplay nukeVisual = spawnBillboardVisual(
+                center.clone().add(0, 1.0, 0),
+                getLimitlessVisualItem("limitless_purple_nuke", Material.AMETHYST_SHARD),
+                3.0f
+        );
+        if (nukeVisual != null) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (nukeVisual.isValid()) nukeVisual.remove();
+            }, 30L);
+        }
 
         // Screen shake: send rapid title packets to all players within 50 blocks
         for (Player nearby : w.getPlayers()) {
@@ -762,15 +866,86 @@ public final class LimitlessManager {
 
     // ===== Utilities =====
 
-    /**
-     * Returns true if the given beam point falls within the locked-Blue hitbox sphere.
-     * Uses radius-squared comparison to avoid an expensive square-root per step.
-     */
-    private boolean beamIntersectsLockedBlue(Location beamPoint, Location lockedBlueLoc) {
-        if (lockedBlueLoc == null) return false;
-        if (lockedBlueLoc.getWorld() == null || beamPoint.getWorld() == null) return false;
-        if (!lockedBlueLoc.getWorld().equals(beamPoint.getWorld())) return false;
-        return beamPoint.distanceSquared(lockedBlueLoc)
+    private ItemDisplay spawnBillboardVisual(Location loc, ItemStack item, float scale) {
+        World world = loc.getWorld();
+        if (world == null) return null;
+        return world.spawn(loc, ItemDisplay.class, display -> {
+            display.setItemStack(item);
+            display.setBillboard(Display.Billboard.CENTER);
+            display.setBrightness(new Display.Brightness(15, 15));
+            display.setTransformation(new Transformation(
+                    new Vector3f(0f, 0f, 0f),
+                    new Quaternionf(),
+                    new Vector3f(scale, scale, scale),
+                    new Quaternionf()));
+            display.setInterpolationDuration(2);
+            display.setInterpolationDelay(0);
+        });
+    }
+
+    private ItemStack getLimitlessVisualItem(String id, Material fallback) {
+        try {
+            // Nexo is not on this plugin's compile classpath.
+            // TODO: replace with compile-time NexoItems.itemFromId(id).build() if Nexo is added to the build.
+            Class<?> nexoItems = Class.forName("com.nexomc.nexo.api.NexoItems");
+            try {
+                Object exists = nexoItems.getMethod("exists", String.class).invoke(null, id);
+                if (exists instanceof Boolean b && !b) {
+                    return new ItemStack(fallback);
+                }
+            } catch (Throwable ignored) {
+                // exists(String) may differ between Nexo versions.
+            }
+            Object builder = nexoItems.getMethod("itemFromId", String.class).invoke(null, id);
+            if (builder != null) {
+                Object stack = builder.getClass().getMethod("build").invoke(builder);
+                if (stack instanceof ItemStack is) return is;
+            }
+        } catch (Throwable ignored) {
+        }
+        return new ItemStack(fallback);
+    }
+
+    private void recordBlueMaxDamage(Player caster, LivingEntity target) {
+        UUID targetId = target.getUniqueId();
+        recentBlueMaxDamageOwner.put(targetId, caster.getUniqueId());
+        recentBlueMaxDamageTime.put(targetId, System.currentTimeMillis());
+    }
+
+    public void handleEntityDeathForBlueMax(LivingEntity dead) {
+        UUID targetId = dead.getUniqueId();
+        UUID ownerId = recentBlueMaxDamageOwner.remove(targetId);
+        Long when = recentBlueMaxDamageTime.remove(targetId);
+        if (ownerId == null || when == null) return;
+        if (System.currentTimeMillis() - when > BLUE_MAX_KILL_WINDOW_MS) return;
+
+        Player owner = Bukkit.getPlayer(ownerId);
+        if (owner == null || !owner.isOnline()) return;
+
+        canLockBlue.add(ownerId);
+        owner.sendMessage(plugin.cfg().prefix() + "§bBlue Max kill confirmed. §7Sneak to lock Blue.");
+    }
+
+    private Location consumeLockedBlueForNuke(UUID owner) {
+        LockedBlue locked = lockedBlues.get(owner);
+        if (locked == null) return null;
+        Location center = locked.location.clone();
+        removeLockedBlue(owner, true);
+        consumedLockedBlueCenters.put(owner, center.clone());
+        consumedLockedBlueAtMs.put(owner, System.currentTimeMillis());
+        return center;
+    }
+
+    private boolean redMaxHitsLockedBlue(Player p, Location redLocation) {
+        LockedBlue locked = lockedBlues.get(p.getUniqueId());
+        if (locked == null) return false;
+        if (System.currentTimeMillis() > locked.expiresAtMs) {
+            removeLockedBlue(p.getUniqueId(), true);
+            return false;
+        }
+        if (locked.location.getWorld() == null || redLocation.getWorld() == null) return false;
+        if (!locked.location.getWorld().equals(redLocation.getWorld())) return false;
+        return locked.location.distanceSquared(redLocation)
                 <= LOCKED_BLUE_HITBOX_RADIUS * LOCKED_BLUE_HITBOX_RADIUS;
     }
 
@@ -823,10 +998,11 @@ public final class LimitlessManager {
         BukkitTask blueTask = blueMaxActiveTasks.remove(uuid);
         if (blueTask != null) blueTask.cancel();
 
-        ItemDisplay lockedOrb = lockedBlueOrbs.remove(uuid);
-        if (lockedOrb != null && lockedOrb.isValid()) lockedOrb.remove();
+        removeLockedBlue(uuid, true);
 
         canLockBlue.remove(uuid);
+        consumedLockedBlueCenters.remove(uuid);
+        consumedLockedBlueAtMs.remove(uuid);
     }
 
     /**
@@ -834,8 +1010,12 @@ public final class LimitlessManager {
      * Returns null if there is no locked orb.
      */
     public Location getStationaryBlueLocation(UUID uuid) {
-        ItemDisplay orb = lockedBlueOrbs.get(uuid);
-        if (orb == null || !orb.isValid()) return null;
-        return orb.getLocation();
+        LockedBlue locked = lockedBlues.get(uuid);
+        if (locked == null) return null;
+        if (System.currentTimeMillis() > locked.expiresAtMs) {
+            removeLockedBlue(uuid, true);
+            return null;
+        }
+        return locked.location.clone();
     }
 }
