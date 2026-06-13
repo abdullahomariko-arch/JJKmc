@@ -40,8 +40,15 @@ public final class LimitlessManager {
     // Locked Blue orbs — uuid -> locked ItemDisplay entity (for Nuke detection)
     private final Map<UUID, ItemDisplay> lockedBlueOrbs = new ConcurrentHashMap<>();
 
-    // Locked Blue hitbox radius (invisible sphere around the locked-Blue location)
+    // Locked Blue hitbox radius (invisible sphere around the locked-Blue location).
+    // 2.5 blocks gives a generous but not overpowered collision area — large enough
+    // that a player firing Red Max can reasonably collide with the orb, but small enough
+    // that accidental nuke triggers from nearby shots are avoided.
     private static final double LOCKED_BLUE_HITBOX_RADIUS = 2.5;
+
+    // Delay in ticks between the Red Max beam hitting the locked Blue and the nuke detonating.
+    // 15 ticks (~0.75 s) provides a brief dramatic buildup without feeling laggy.
+    private static final long PURPLE_NUKE_TRIGGER_DELAY_TICKS = 15L;
 
     public LimitlessManager(JJKCursedToolsPlugin plugin) {
         this.plugin = plugin;
@@ -524,10 +531,7 @@ public final class LimitlessManager {
             destroyBlocksInRadius(step, 1, p);
 
             // Check if beam passes through the locked Blue hitbox
-            if (lockedBlueLoc != null && !nukeTriggered
-                    && lockedBlueLoc.getWorld() != null
-                    && lockedBlueLoc.getWorld().equals(step.getWorld())
-                    && step.distanceSquared(lockedBlueLoc) <= LOCKED_BLUE_HITBOX_RADIUS * LOCKED_BLUE_HITBOX_RADIUS) {
+            if (!nukeTriggered && beamIntersectsLockedBlue(step, lockedBlueLoc)) {
                 nukeTriggered = true;
                 beamLength = d;
                 break;
@@ -587,7 +591,7 @@ public final class LimitlessManager {
         // If the beam hit the locked Blue orb, trigger Purple Nuke after a short delay
         if (nukeTriggered && finalLockedBlueLoc != null) {
             Bukkit.getScheduler().runTaskLater(plugin, () ->
-                    triggerPurpleNuke(p, finalLockedBlueLoc.clone()), 15L);
+                    triggerPurpleNuke(p, finalLockedBlueLoc.clone()), PURPLE_NUKE_TRIGGER_DELAY_TICKS);
         }
     }
 
@@ -757,6 +761,18 @@ public final class LimitlessManager {
     }
 
     // ===== Utilities =====
+
+    /**
+     * Returns true if the given beam point falls within the locked-Blue hitbox sphere.
+     * Uses radius-squared comparison to avoid an expensive square-root per step.
+     */
+    private boolean beamIntersectsLockedBlue(Location beamPoint, Location lockedBlueLoc) {
+        if (lockedBlueLoc == null) return false;
+        if (lockedBlueLoc.getWorld() == null || beamPoint.getWorld() == null) return false;
+        if (!lockedBlueLoc.getWorld().equals(beamPoint.getWorld())) return false;
+        return beamPoint.distanceSquared(lockedBlueLoc)
+                <= LOCKED_BLUE_HITBOX_RADIUS * LOCKED_BLUE_HITBOX_RADIUS;
+    }
 
     private List<LivingEntity> getEntitiesInRadius(Location center, double radius, Player exclude) {
         List<LivingEntity> result = new ArrayList<>();
