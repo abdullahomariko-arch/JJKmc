@@ -89,47 +89,19 @@ public final class LimitlessListener implements Listener {
         }, 200L);
     }
 
-    /**
-     * Blue Max kill detection — when a Limitless player kills something
-     * while their Blue Max orb is active, mark the orb as lockable.
-     */
     @EventHandler
     public void onEntityDeath(EntityDeathEvent e) {
-        Player killer = e.getEntity().getKiller();
-        if (killer == null) return;
-
-        String assignedId = plugin.techniqueManager().getAssignedId(killer.getUniqueId());
-        if (!"limitless".equalsIgnoreCase(assignedId)) return;
-
-        // Check if they have an active Blue Max orb
-        if (manager.hasActiveBlueMaxOrb(killer)) {
-            manager.markCanLockBlue(killer);
-            killer.sendMessage(plugin.cfg().prefix() + "§b§lBlue orb §7is now lockable! §eShift to lock.");
-        }
+        manager.handleEntityDeathForBlueMax(e.getEntity());
     }
 
-    /**
-     * Blue Max sneak toggle — locking and unlocking the Blue orb.
-     * Lock: if player starts sneaking AND canLock → lock orb
-     * Unlock: if player stops sneaking AND has locked orb → remove orb
-     */
     @EventHandler
     public void onSneak(PlayerToggleSneakEvent e) {
+        if (!e.isSneaking()) return;
         Player p = e.getPlayer();
         String assignedId = plugin.techniqueManager().getAssignedId(p.getUniqueId());
         if (!"limitless".equalsIgnoreCase(assignedId)) return;
-
-        if (e.isSneaking()) {
-            // Player just started sneaking — try to lock the Blue Max orb
-            if (manager.hasActiveBlueMaxOrb(p) && manager.canLockBlue(p)) {
-                manager.lockBlueOrb(p);
-            }
-        } else {
-            // Player stopped sneaking — release the locked Blue orb
-            if (manager.hasLockedBlueOrb(p)) {
-                manager.removeLockedBlueOrb(p);
-            }
-        }
+        if (plugin.limitless() == null) return;
+        plugin.limitless().tryLockBlue(p);
     }
 
     /** Player disconnect — clean up Infinity state */
